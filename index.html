@@ -31,13 +31,23 @@
   #scroller.zoomed ~ #zoomOut{display:block}
 
   /* the open-drawer card: grows out of the drawer, settles centre stage */
-  #cards{position:absolute;inset:0;pointer-events:none;z-index:4;
-    filter:drop-shadow(0 18px 34px rgba(0,0,0,.28)) drop-shadow(0 2px 6px rgba(0,0,0,.10))}
+  /* no z-index/filter here: the shadows must multiply onto the cabinet below */
+  #cards{position:absolute;inset:0;pointer-events:none}
   .card{position:absolute;opacity:0;
     transition:left .34s cubic-bezier(.2,.8,.2,1),top .34s cubic-bezier(.2,.8,.2,1),
                width .34s cubic-bezier(.2,.8,.2,1),height .34s cubic-bezier(.2,.8,.2,1),opacity .16s,transform .25s}
   .card.in{opacity:1}
-  .card img{width:100%;height:100%;object-fit:contain;display:block}
+  .card img{position:relative;width:100%;height:100%;object-fit:contain;display:block}
+  /* Shadows cut from the object's own silhouette, lit from the upper left
+     like the cabinet: tight and dark in the drawer, longer and softer as
+     the object lifts toward you. Deep violet, multiplied into the paint. */
+  .card .sh{position:absolute;inset:0;background:#2a1d45;mix-blend-mode:multiply;
+    -webkit-mask:var(--src) center/contain no-repeat;mask:var(--src) center/contain no-repeat;
+    transition:transform .34s cubic-bezier(.2,.8,.2,1),filter .34s cubic-bezier(.2,.8,.2,1),opacity .34s}
+  .card .sh.broad{transform:translate(1px,1px);filter:blur(1px);opacity:.55}
+  .card .sh.contact{transform:translate(.5px,.5px);filter:blur(.5px);opacity:.45}
+  .card.up .sh.broad{transform:translate(calc(var(--T)*.065),calc(var(--T)*.095));filter:blur(calc(var(--T)*.045));opacity:.40}
+  .card.up .sh.contact{transform:translate(calc(var(--T)*.018),calc(var(--T)*.027));filter:blur(calc(var(--T)*.012));opacity:.24}
   .card.match{transform:scale(1.08);opacity:0;transition:opacity .35s .15s,transform .35s}
   .card.gone{opacity:0;transition:opacity .12s}
   .card .cap{position:absolute;left:0;right:0;top:100%;margin-top:8px;font-size:12px;color:var(--muted);text-align:center;white-space:nowrap}
@@ -352,12 +362,16 @@ function layoutCards(instant){
   const x0=(W-(n*T+(n-1)*gap))/2, y0=(H-T)/2-(SETUP?12:0);
   cards.forEach((c,i)=>{ if(c.leaving) return;
     if(instant) c.el.style.transition='none';
+    c.el.style.setProperty('--T',T+'px'); c.el.classList.add('up');
     place(c.el,{x:x0+i*(T+gap),y:y0,w:T,h:T});
     if(instant){ c.el.offsetWidth; c.el.style.transition=''; } });
 }
 function addCard(f,caption){
   const el=document.createElement('div'); el.className='card';
-  const im=document.createElement('img'); im.src=img(f.obj).src; im.alt=''; el.appendChild(im);
+  const src=img(f.obj).src;
+  el.style.setProperty('--src',`url("${src}")`);
+  for(const k of ['broad','contact']){ const sh=document.createElement('div'); sh.className='sh '+k; el.appendChild(sh); }
+  const im=document.createElement('img'); im.src=src; im.alt=''; el.appendChild(im);
   if(caption){ const c=document.createElement('div'); c.className='cap'; c.textContent=caption; el.appendChild(c); }
   cardsEl.appendChild(el); el.style.transition='none'; place(el,drawerBox(f));
   el.offsetWidth; el.style.transition=''; el.classList.add('in');
