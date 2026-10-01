@@ -78,6 +78,7 @@
   footer{width:min(calc(100% - 28px),var(--colw,640px));margin:0 auto;padding:0 0 18px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:14px}
   footer .copy{margin-left:auto}
 
+  body.is-demo footer .btn{visibility:hidden}
   .setup{display:none}
   body.is-setup .setup{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
   body.is-setup .play-only{display:none}
@@ -119,7 +120,7 @@
   </main>
   <footer>
     <button class="btn play-only" id="restart">&#8635; Start over</button>
-    <a class="btn" href="artwork.html">The artwork</a>
+    <a class="btn" href="artwork.html">View Artwork</a>
     <span class="copy">&copy; Mark Schoening 2026</span>
   </footer>
 
@@ -418,7 +419,7 @@ function open(f){
     a.matched=b.matched=true; a.open=b.open=false; openIdx=[]; found++;
     document.getElementById('s-found').textContent=found; render();
     dropCards('match');
-    if(navigator.vibrate) navigator.vibrate(18);
+    if(!DEMO&&navigator.vibrate) navigator.vibrate(18);
     if(found===93) setTimeout(win,500);
   }else{
     missTimer=setTimeout(closePair,1400);      // or sooner, on the next click
@@ -494,6 +495,7 @@ function printList(){
 // cashed in first. Never opens the tube; the tube drawer goes dark once
 // 30% of the pairs are found, so the last frame is an all-black cabinet.
 let demoOn=false;
+if(DEMO) document.body.classList.add('is-demo');   // clean frame for recording
 if(DEMO) document.addEventListener('keydown',e=>{ if(e.code==='Space'&&!demoOn){ e.preventDefault(); runDemo(); } });
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function tap(f){
