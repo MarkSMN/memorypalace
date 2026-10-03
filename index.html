@@ -69,8 +69,20 @@
     border:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 1px rgba(0,0,0,.25);pointer-events:none;z-index:5;
     animation:tap .45s ease-out forwards}
   @keyframes tap{from{transform:scale(.4);opacity:1}to{transform:scale(1.5);opacity:0}}
-  .win{position:absolute;inset:0;background:rgba(255,255,255,.93);display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:24px;z-index:8}
+  .win{position:absolute;inset:0;display:none;align-items:center;justify-content:flex-end;flex-direction:column;padding:0 16px 9%;z-index:8;pointer-events:none}
   .win.show{display:flex}
+  .win .panel{pointer-events:auto;background:#fff;border-radius:10px;padding:20px 26px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;
+    box-shadow:0 18px 50px rgba(0,0,0,.35);opacity:0;transform:translateY(10px);transition:opacity .5s,transform .5s}
+  .win.panel-in .panel{opacity:1;transform:none}
+  .win .row{display:flex;gap:8px}
+  @media (max-width:760px){.win .panel{padding:14px 18px;gap:7px}.win h2{font-size:17px}.win p{font-size:12px}}
+  .win a.btn{text-decoration:none}
+  /* the solve reveal: six letter objects rise out of the black cabinet */
+  .spell{position:absolute;pointer-events:none;z-index:7;opacity:0;
+    filter:drop-shadow(0 10px 14px rgba(0,0,0,.55));
+    transition:left .9s cubic-bezier(.2,.8,.2,1),top .9s cubic-bezier(.2,.8,.2,1),width .9s cubic-bezier(.2,.8,.2,1),height .9s cubic-bezier(.2,.8,.2,1),opacity .35s}
+  .spell.in{opacity:1}
+  .spell img{width:100%;height:100%;object-fit:contain;display:block}
   .win h2{margin:0;font-size:22px;letter-spacing:.14em;text-transform:uppercase}
   .win p{margin:0;color:var(--muted);font-size:14px}
   .win .big{color:var(--text);font-weight:700}
@@ -111,12 +123,15 @@
     <div id="scroller"><canvas id="surface"></canvas></div>
     <button class="btn" id="zoomOut">Whole cabinet</button>
     <div id="cards"></div>
-    <div class="win" id="win">
+    <div class="win" id="win"><div class="panel">
       <h2>Solved</h2>
       <p><span class="big">93</span> pairs found.</p>
       <p><span id="w-moves">0</span> moves &middot; <span id="w-time">0:00</span></p>
-      <button class="btn" id="w-again">Play again</button>
-    </div>
+      <div class="row">
+        <button class="btn" id="w-again">Play again</button>
+        <a class="btn" href="studio/">Studio &rarr;</a>
+      </div>
+    </div></div>
   </main>
   <footer>
     <button class="btn play-only" id="restart">&#8635; Start over</button>
@@ -133,6 +148,7 @@
 const COMP=window.MP_COMP, NAMES=window.MP_PIECES;
 const CONTENTS_SEED=23408;          // same seed → same drawer map, always
 const TUBE_DEFAULT='R4C2';           // the sealed tube; change in setup mode
+const TUBE_FADE=20;                 // the tube drawer goes black with this match
 const SETUP=false;
 const DEMO=false;   // self-playing recording
 const PACE=+new URLSearchParams(location.search).get('pace')||380;  // ms per click
@@ -417,10 +433,12 @@ function open(f){
   const[a,b]=openIdx;
   if(a.obj===b.obj && a.obj!=='tube'){
     a.matched=b.matched=true; a.open=b.open=false; openIdx=[]; found++;
+    // the tube drawer has no pair: it goes dark with the 20th match, unnoticed
+    if(found===TUBE_FADE){ const t=faces.find(f=>f.obj==='tube'); t.open=false; t.matched=true; }
     document.getElementById('s-found').textContent=found; render();
     dropCards('match');
     if(!DEMO&&navigator.vibrate) navigator.vibrate(18);
-    if(found===93) setTimeout(win,500);
+    if(found===93) setTimeout(win,700);
   }else{
     missTimer=setTimeout(closePair,1400);      // or sooner, on the next click
   }
@@ -434,10 +452,26 @@ function startTimer(){ clearInterval(timer); t0=Date.now();
   const el=document.getElementById('s-time');
   timer=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);el.textContent=Math.floor(s/3600)?`${Math.floor(s/3600)}:${String(Math.floor(s/60)%60).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:Math.floor(s/60)+':'+String(s%60).padStart(2,'0');},500);
 }
+// The studio password, spelled by six objects from the cabinet (stored as
+// which objects, not as a word). Solving the game is one way in.
+const SPELL=[39,35,34,69,88,15];
+let spellEls=[];
 function win(){ clearInterval(timer);
   document.getElementById('w-moves').textContent=moves;
   document.getElementById('w-time').textContent=document.getElementById('s-time').textContent;
-  document.getElementById('win').classList.add('show');
+  const W=stageEl.clientWidth, H=stageEl.clientHeight, n=SPELL.length;
+  const gap=Math.max(2,W*0.006), T=Math.min(96,(Math.min(W,cv.clientWidth)*0.86-gap*(n-1))/n);
+  const cr=cv.getBoundingClientRect(), sr=stageEl.getBoundingClientRect();
+  const x0=(W-(n*T+(n-1)*gap))/2, y0=(cr.top-sr.top)+cr.height*0.27-T/2;   // upper third of the cabinet
+  if(!DEMO) SPELL.forEach((k,i)=>{   // never in the recorded demo: it would show the password
+    const f=faces.find(o=>o.obj===k), el=document.createElement('div'); el.className='spell';
+    const im=document.createElement('img'); im.src=img(k).src; im.alt=''; el.appendChild(im);
+    stageEl.appendChild(el); el.style.transition='none'; place(el,drawerBox(f)); el.offsetWidth; el.style.transition='';
+    spellEls.push(el);
+    setTimeout(()=>{ el.classList.add('in'); place(el,{x:x0+i*(T+gap),y:y0,w:T,h:T}); },350+i*260);
+  });
+  const w=document.getElementById('win'); w.classList.add('show');
+  setTimeout(()=>w.classList.add('panel-in'),350+n*260+500);
 }
 function restart(){
   faces.forEach(f=>{f.open=f.matched=false});
@@ -445,7 +479,8 @@ function restart(){
   document.getElementById('s-found').textContent=0;
   document.getElementById('s-moves').textContent=0;
   document.getElementById('s-time').textContent='0:00';
-  document.getElementById('win').classList.remove('show');
+  document.getElementById('win').classList.remove('show','panel-in');
+  spellEls.forEach(e=>e.remove()); spellEls=[];
   cards.forEach(c=>c.el.remove()); cards=[];
   zoomOut();
 }
@@ -492,8 +527,8 @@ function printList(){
 // ═══ demo (?demo): the cabinet solves itself, for screen recording ═══
 // A sharp player with perfect memory: open an unknown drawer; if its mate
 // has been seen, open that; otherwise try another unknown. Known pairs are
-// cashed in first. Never opens the tube; the tube drawer goes dark once
-// 30% of the pairs are found, so the last frame is an all-black cabinet.
+// cashed in first. Never opens the tube (it goes dark with the 20th match,
+// as in the real game), so the last frame is an all-black cabinet.
 let demoOn=false;
 if(DEMO) document.body.classList.add('is-demo');   // clean frame for recording
 if(DEMO) document.addEventListener('keydown',e=>{ if(e.code==='Space'&&!demoOn){ e.preventDefault(); runDemo(); } });
@@ -520,8 +555,6 @@ async function runDemo(){
       const m=mateOf(a);
       await click(m||unseen[0]);
     }
-    const tube=faces.find(f=>f.obj==='tube');
-    if(found>=Math.ceil(93*0.3)&&!tube.matched){ tube.matched=true; render(); }
   }
 }
 
