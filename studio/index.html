@@ -1,0 +1,4661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory Palace</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #111009;
+  --surface: #191610;
+  --panel: #201c14;
+  --border: #2e2a1f;
+  --text: #ddd0c0;
+  --muted: #6e6454;
+  --accent: #c47a45;
+  --accent-bg: rgba(196,122,69,0.12);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 256px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sidebar-title {
+  padding: 14px 16px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.section-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+details.section > summary {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--muted);
+  cursor: pointer; user-select: none; list-style: none;
+  display: flex; align-items: center; gap: 6px;
+}
+details.section > summary::-webkit-details-marker { display: none; }
+details.section > summary::before { content: '\25B8'; font-size: 10px; color: var(--accent); }
+details.section[open] > summary::before { content: '\25BE'; }
+.etch-body { display: flex; flex-direction: column; gap: 9px; margin-top: 11px; }
+.etch-sub {
+  display: flex; flex-direction: column; gap: 9px;
+  border-left: 2px solid var(--border); padding-left: 10px; margin-left: 1px;
+}
+.hint-sm { font-size: 10px; color: var(--muted); line-height: 1.4; }
+
+/* Randomize ladder — three knob-dot buttons, escalating scope */
+.dot-ladder { display: flex; gap: 8px; }
+.dot-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 12px 0; background: #0b0a06;
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.dot-btn:hover { border-color: var(--accent); background: #000; }
+.dot-btn:active { transform: translateY(1px); }
+.kdot {
+  width: 11px; height: 11px; border-radius: 50%; display: inline-block;
+  background: radial-gradient(circle at 38% 34%, #e6a877, #c47a45 64%, #a5622f);
+  box-shadow: 0 1px 2px rgba(0,0,0,.5), inset 0 0 0 .5px rgba(0,0,0,.2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.val {
+  font-size: 11px;
+  color: var(--accent);
+  font-family: 'SF Mono', 'Consolas', monospace;
+  min-width: 30px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+input[type=color] {
+  -webkit-appearance: none;
+  width: 28px; height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+  padding: 1px;
+  flex-shrink: 0;
+}
+
+input[type=number] {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  width: 72px;
+  outline: none;
+  text-align: right;
+}
+input[type=number]:focus { border-color: var(--accent); }
+
+select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  width: 100%;
+  cursor: pointer;
+  outline: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e6454'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 26px;
+}
+select:focus { border-color: var(--accent); }
+
+.btn-group {
+  display: flex;
+  gap: 5px;
+}
+
+button {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+button:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sub-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 2px;
+}
+
+/* small helper text under a control */
+.hint {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* minor divider label inside a section */
+.subhead {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+textarea {
+  width: 100%;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+}
+textarea:focus { border-color: var(--accent); }
+
+#paletteSwatches {
+  display: flex;
+  height: 22px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.seed-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.seed-row label { font-size: 12px; flex: 1; }
+.seed-row button {
+  flex: none;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Main ── */
+.preview-toggle {
+  display: flex; border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden; background: var(--panel);
+}
+.pv {
+  flex: 1; padding: 7px 0; font-size: 12px; border: 0; background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.pv.on { background: var(--accent); color: #1a1a1a; font-weight: 600; }
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  gap: 10px;
+  overflow: hidden;
+  position: relative;
+  background: #fff;
+}
+
+.canvas-wrap {
+  position: relative;
+  box-shadow: 0 12px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+canvas { display: block; }
+
+.stats-bar {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'SF Mono', 'Consolas', monospace;
+  letter-spacing: 0.04em;
+  display: flex;
+  gap: 20px;
+}
+.stats-bar span { color: var(--text); }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-title">Memory Palace</div>
+
+  <div class="section">
+    <button id="btnLoadOriginal">↺ Load original</button>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Restores the exhibited piece — the exact 187-drawer composition, palette &amp; seed (23408).</div>
+    <div class="dot-ladder" style="margin-top:10px">
+      <button id="rnd1" class="dot-btn" title="Reroll — new layout &amp; colours, same palette"><span class="kdot"></span></button>
+      <button id="rnd2" class="dot-btn" title="Reinvent — new behaviours, same palette"><span class="kdot"></span><span class="kdot"></span></button>
+      <button id="rnd3" class="dot-btn" title="New everything — new palette &amp; scale too"><span class="kdot"></span><span class="kdot"></span><span class="kdot"></span></button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Composition</div>
+
+    <div class="row"><label>Row height pattern</label></div>
+    <select id="rowHeightMode">
+      <option value="uniform">Uniform (slider above)</option>
+      <option value="random" selected>Random mix</option>
+      <option value="alternate">Alternate short/tall</option>
+      <option value="grad-down">Gradient — tall at bottom</option>
+      <option value="grad-up">Gradient — tall at top</option>
+    </select>
+    <div style="font-size:10px;color:var(--muted)">Mix modes use 60.96 · 76.2 · 81.28 · 101.6 mm (2.4″ · 3″ · 3.2″ · 4″) — minis appear only via splits</div>
+
+    <div class="row"><label>Split chance (3″ rows)</label><span class="val" id="v-split">100%</span></div>
+    <input type="range" id="splitChance" min="0" max="1" value="1" step="0.05">
+    <div style="font-size:10px;color:var(--muted)">Chance a 76.2mm slot splits into two stacked 38.1mm minis</div>
+
+    <div class="row"><label>Split pattern</label></div>
+    <select id="splitPattern">
+      <option value="scatter">Scatter (independent)</option>
+      <option value="patches">Patches — clustered blobs</option>
+      <option value="row-burst">Row burst — all-or-nothing rows</option>
+      <option value="center" selected>Dense at center</option>
+      <option value="edges">Dense at edges</option>
+    </select>
+
+    <div style="font-size:10px;color:var(--muted)" id="derived-grid">— units</div>
+
+    <div class="btn-group">
+      <button id="btnRandomLayout">Randomize Layout</button>
+    </div>
+
+    <select id="layoutPattern">
+      <option value="random">Random</option>
+      <option value="widen-x">Widen → right</option>
+      <option value="widen-y">Widen ↓ down</option>
+      <option value="diagonal">Widen diagonal</option>
+      <option value="centered">Wide center</option>
+      <option value="edges">Wide edges</option>
+      <option value="wave">Wave</option>
+    </select>
+
+    <div class="row"><label>Jitter</label><span class="val" id="v-jitter">100%</span></div>
+    <input type="range" id="jitter" min="0" max="1" value="1" step="0.05">
+    <div style="font-size:10px;color:var(--muted)">0 = pure pattern · 100 = full random</div>
+
+    <div class="seed-row">
+      <label>Seed</label>
+      <input type="number" id="seed" value="23408" min="0" max="99999">
+      <button id="btnRandom" title="Randomize seed">↻</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Color Mode</div>
+    <div class="btn-group">
+      <button id="btn-gradient">Grid-ignorant</button>
+      <button id="btn-grid" class="active">Grid-aware</button>
+    </div>
+
+    <div class="sub-opts" id="opts-gradient" style="display:none">
+      <div class="row"><label>Gradient angle</label><span class="val" id="v-angle">135°</span></div>
+      <input type="range" id="gradAngle" min="0" max="360" value="135" step="5">
+    </div>
+
+    <div class="sub-opts" id="opts-grid">
+      <select id="colorBy">
+        <option value="x">X position (left → right)</option>
+        <option value="y">Y position (top → bottom)</option>
+        <option value="diagonal">Diagonal</option>
+        <option value="size">Cell area</option>
+        <option value="radial">Radial</option>
+        <option value="clusters">Clusters — color patches</option>
+        <option value="multiradial">Bursts — small radials</option>
+        <option value="noise" selected>Noise field — drifting blobs</option>
+        <option value="sizemix">Size × noise — scale-linked mix</option>
+        <option value="shuffle">Shuffle — per-drawer random</option>
+      </select>
+
+      <div class="row" style="margin-top:6px"><label>Color seed</label></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="number" id="colorSeed" value="57518" style="flex:1">
+        <button id="btnColorSeed" title="Reroll color seed">↻</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted)">Rerolls cluster/burst/noise placement without touching the layout</div>
+
+      <div id="opts-radial" style="display:none;margin-top:6px;display:none;flex-direction:column;gap:8px;">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Center point</div>
+        <div id="radialGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;">
+        </div>
+        <div class="row"><label>Center X</label><span class="val" id="v-rx">50%</span></div>
+        <input type="range" id="radialX" min="0" max="100" value="50" step="1">
+        <div class="row"><label>Center Y</label><span class="val" id="v-ry">50%</span></div>
+        <input type="range" id="radialY" min="0" max="100" value="50" step="1">
+        <div class="row"><label>Scale</label><span class="val" id="v-rscale">1.8</span></div>
+        <input type="range" id="radialScale" min="0.5" max="4" value="1.8" step="0.1">
+      </div>
+    </div>
+
+    <div class="row"><label>Quantize steps</label><span class="val" id="v-steps">6</span></div>
+    <input type="range" id="colorSteps" min="0" max="12" value="6" step="1">
+    <div style="font-size:10px;color:var(--muted)">0 = smooth · higher = discrete bands</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Palette</div>
+
+    <div id="paletteSwatches"></div>
+
+    <div class="row"><label>Palette mood</label></div>
+    <select id="paletteMood">
+      <option value="any">Any</option>
+      <option value="muted" selected>Muted — compressed range</option>
+      <option value="vivid">Vivid — full range</option>
+    </select>
+
+    <button id="btnRecolor">Recolor Palette</button>
+    <button id="btnCycle" style="margin-top:5px">Cycle colors ↻</button>
+    <div class="hint" id="paletteMode"></div>
+
+    <div class="subhead">Paste a palette</div>
+    <textarea id="pastePalette" rows="2" spellcheck="false"
+      >#5bbfa4 #6cc78d 5aa6c2 6b6fb0 8a6cae a86ba6</textarea>
+    <button id="btnApplyPaste">Apply pasted palette</button>
+    <div class="hint">Any 2–6 hex codes (spaces, commas, or new lines).
+      Fewer than 6 are blended to fill. Sorted dark→light. Held until Recolor.</div>
+
+    <div class="row" style="margin-top:4px">
+      <label>Shell / gap color</label>
+      <input type="color" id="shellColor" value="#655b97">
+    </div>
+
+    <div class="row"><label>Gap reveal</label><span class="val" id="v-gap">2px</span></div>
+    <input type="range" id="gapSize" min="2" max="18" value="2" step="1">
+  </div>
+
+  <div class="section">
+    <div class="section-title">Pulls</div>
+
+    <select id="pullMorph">
+      <option value="none">Uniform size</option>
+      <option value="x">Morph: left → right</option>
+      <option value="y">Morph: top → bottom</option>
+      <option value="radial" selected>Morph: radial</option>
+      <option value="size">Morph: by drawer size</option>
+    </select>
+
+    <div class="row"><label>Min pull size</label><span class="val" id="v-pmin">8%</span></div>
+    <input type="range" id="pullMin" min="3" max="25" value="8" step="1">
+
+    <div class="row"><label>Max pull size</label><span class="val" id="v-pmax">18%</span></div>
+    <input type="range" id="pullMax" min="5" max="45" value="18" step="1">
+
+    <select id="pullColorMode">
+      <option value="match">Match face</option>
+      <option value="invert" selected>Invert palette</option>
+      <option value="dark">Darker in palette</option>
+      <option value="light">Lighter in palette</option>
+      <option value="shift">Shift +50%</option>
+    </select>
+  </div>
+
+  <details class="section" id="etchSection">
+    <summary>Etch &amp; Render</summary>
+    <div class="etch-body">
+      <div class="hint-sm">Tunes the <b>Render</b> preview only — the exported laser file always uses true geometry. Touching any control jumps to Render.</div>
+
+      <div class="row"><label>Etch fill</label></div>
+      <select id="etchFill">
+        <option value="flow" selected>Flow — gradient streams</option>
+        <option value="terrain">Terrain — topo contours</option>
+        <option value="grain">Grain — vertical striations</option>
+        <option value="none">None — colors only</option>
+      </select>
+
+      <div class="row"><label>Show knobs</label>
+        <input type="checkbox" id="etchKnobs" checked style="width:auto"></div>
+
+      <div class="row"><label>Reveal (gap)</label><span class="val" id="ev-reveal">1.2mm</span></div>
+      <input type="range" id="etchReveal" min="0.2" max="2" value="1.2" step="0.1">
+
+      <div class="row"><label>Relief</label><span class="val" id="ev-relief">100%</span></div>
+      <input type="range" id="etchRelief" min="0" max="200" value="100" step="5">
+
+      <div class="row"><label>Etch darkness</label><span class="val" id="ev-dark">30%</span></div>
+      <input type="range" id="etchDark" min="0" max="100" value="30" step="1">
+
+      <div class="row"><label>Face sheen</label><span class="val" id="ev-sheen">35%</span></div>
+      <input type="range" id="etchSheen" min="0" max="100" value="35" step="5">
+
+      <div class="row"><label>Highlight</label><span class="val" id="ev-hi">55%</span></div>
+      <input type="range" id="etchHi" min="0" max="150" value="55" step="5">
+
+      <div class="row"><label>Shadow</label><span class="val" id="ev-sh">60%</span></div>
+      <input type="range" id="etchSh" min="0" max="150" value="60" step="5">
+
+      <div class="row"><label>Frame</label><span class="val" id="ev-frame">12mm</span></div>
+      <input type="range" id="etchFrame" min="0" max="60" value="12" step="2">
+
+      <div class="etch-sub" id="p-grain-s">
+        <div class="row"><label>Grain min spacing</label><span class="val" id="ev-gsmin">3.0</span></div>
+        <input type="range" id="etchGsmin" min="1" max="8" value="3" step="0.1">
+        <div class="row"><label>Grain max spacing</label><span class="val" id="ev-gsmax">9.5</span></div>
+        <input type="range" id="etchGsmax" min="3" max="20" value="9.5" step="0.5">
+        <div class="row"><label>Grain wobble</label><span class="val" id="ev-gwob">0.50</span></div>
+        <input type="range" id="etchGwob" min="0" max="1.5" value="0.5" step="0.05">
+        <div class="row"><label>Grain wobble freq</label><span class="val" id="ev-gfreq">6.0</span></div>
+        <input type="range" id="etchGfreq" min="1" max="16" value="6" step="0.5">
+      </div>
+
+      <div class="etch-sub" id="p-terrain-s">
+        <div class="row"><label>Terrain isolines</label><span class="val" id="ev-tlev">17</span></div>
+        <input type="range" id="etchTlev" min="5" max="35" value="17" step="1">
+      </div>
+
+      <div class="etch-sub" id="p-flow-s">
+        <div class="row"><label>Flow separation</label><span class="val" id="ev-fsep">2.5</span></div>
+        <input type="range" id="etchFsep" min="1.5" max="8" value="2.5" step="0.25">
+        <div class="row"><label>Flow max length</label><span class="val" id="ev-flen">80</span></div>
+        <input type="range" id="etchFlen" min="20" max="200" value="80" step="10">
+      </div>
+    </div>
+  </details>
+
+  <details class="section" id="formatSection">
+    <summary>Format &amp; dimensions</summary>
+    <div class="etch-body">
+      <div class="hint-sm">The physical frame. <b>•••</b> randomize may reshape these; <b>•</b> and <b>••</b> hold them. Load original restores.</div>
+
+      <div class="row"><label>Cabinet width (mm)</label><span class="val" id="v-cw">762</span></div>
+      <input type="range" id="compW" min="300" max="1200" value="762" step="25.4">
+
+      <div class="row"><label>Cabinet height (mm)</label><span class="val" id="v-ch">1016</span></div>
+      <input type="range" id="compH" min="300" max="1500" value="1016" step="25.4">
+
+      <div class="row"><label>Drawer width (mm)</label><span class="val" id="v-mw">127</span></div>
+      <input type="range" id="maxWidthIn" min="76.2" max="127" value="127" step="25.4">
+      <div style="font-size:10px;color:var(--muted)">76.2 · 101.6 · 127 mm</div>
+
+      <div class="row"><label>Row height (mm)</label><span class="val" id="v-rh">60.96</span></div>
+      <input type="range" id="rowHeightIn" min="60.96" max="101.6" value="60.96" step="40.64">
+      <div style="font-size:10px;color:var(--muted)">60.96 or 101.6 mm (uniform mode)</div>
+    </div>
+  </details>
+
+  <div class="section">
+    <div class="section-title">Export</div>
+    <button id="btnImportJSON">⤒ Import composition JSON</button>
+    <input type="file" id="importFile" accept=".json" style="display:none">
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Reloads a saved layout. Colors stay re-rollable — Recolor, color seed,
+      quantize and pull morph all keep the imported layout intact.</div>
+    <div id="importStatus" style="font-size:10px;color:var(--accent);margin-top:2px"></div>
+
+    <button id="btnExportJSON" style="margin-top:8px">Export JSON for SCAD</button>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Saves composition + dimensions for apothecary-cabinet.scad</div>
+
+    <button id="btnExportSVG" style="margin-top:8px">Export etch SVG (cut + etch)</button>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">1:1 laser face sheet — red cut · black etch · blue IDs.</div>
+
+    <button id="btnSavePNG" style="margin-top:8px">Save PNG (current view)</button>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Snapshots the canvas — switch to Render first for a promo image.</div>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="canvas-wrap" id="wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+  <div class="stats-bar" id="stats"></div>
+</main>
+
+<script>window.MEMORY_PALACE_COMP={
+  "meta": {
+    "generator": "cabinet-visualizer",
+    "seed": 23408,
+    "color_seed": 57518,
+    "color_by": "noise",
+    "pattern": "random"
+  },
+  "palette": {
+    "1": "#422b88",
+    "2": "#4d3785",
+    "3": "#6841aa",
+    "4": "#b086eb",
+    "5": "#ba93ec",
+    "6": "#e0c5ff"
+  },
+  "shell_color": "#655b97",
+  "cabinet": {
+    "width_mm": 762,
+    "height_mm": 1016,
+    "depth_mm": 63.5,
+    "unit_size_mm": 12.7,
+    "row_height_mm": 60.96
+  },
+  "scad_params": {
+    "unit_size_mm": 12.7,
+    "row_height_mm": 60.96,
+    "depth_mm": 63.5,
+    "wall_mm": 2.4,
+    "clearance_mm": 0.35,
+    "pull_hole_dia": 4.2,
+    "screwdriver_hole_dia": 7,
+    "unique_drawer_widths_units": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "unique_drawer_widths_mm": [
+      50.8,
+      63.5,
+      76.2,
+      88.9,
+      101.6,
+      114.3
+    ],
+    "unique_row_heights_mm": [
+      60.96,
+      76.2,
+      81.28,
+      101.6
+    ]
+  },
+  "rows": [
+    {
+      "height_mm": 60.96,
+      "drawers": [
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        }
+      ]
+    },
+    {
+      "height_mm": 81.28,
+      "drawers": [
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "split": true,
+          "mini_height_mm": 40.64,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        }
+      ]
+    },
+    {
+      "height_mm": 76.2,
+      "drawers": [
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 2,
+            "face_hex": "#463c50",
+            "pull_color": 5,
+            "pull_hex": "#7e7189",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 2,
+            "face_hex": "#463c50",
+            "pull_color": 5,
+            "pull_hex": "#7e7189",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 1,
+          "face_hex": "#372f3d",
+          "pull_color": 4,
+          "pull_hex": "#6a5e74",
+          "pull_size": 1
+        }
+      ]
+    },
+    {
+      "height_mm": 101.6,
+      "drawers": [
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 1,
+          "face_hex": "#372f3d",
+          "pull_color": 4,
+          "pull_hex": "#6a5e74",
+          "pull_size": 3
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 3
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 3
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 3
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 3
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 3
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 3
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 3
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "split": true,
+          "mini_height_mm": 50.8,
+          "top": {
+            "face_color": 1,
+            "face_hex": "#372f3d",
+            "pull_color": 4,
+            "pull_hex": "#6a5e74",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 1,
+            "face_hex": "#372f3d",
+            "pull_color": 4,
+            "pull_hex": "#6a5e74",
+            "pull_size": 1
+          }
+        }
+      ]
+    },
+    {
+      "height_mm": 76.2,
+      "drawers": [
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 1,
+            "face_hex": "#372f3d",
+            "pull_color": 4,
+            "pull_hex": "#6a5e74",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 1,
+            "face_hex": "#372f3d",
+            "pull_color": 4,
+            "pull_hex": "#6a5e74",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 1
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 1
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 1
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 1,
+            "face_hex": "#372f3d",
+            "pull_color": 4,
+            "pull_hex": "#6a5e74",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 2,
+            "face_hex": "#463c50",
+            "pull_color": 5,
+            "pull_hex": "#7e7189",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 1,
+            "face_hex": "#372f3d",
+            "pull_color": 4,
+            "pull_hex": "#6a5e74",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 1,
+            "face_hex": "#372f3d",
+            "pull_color": 4,
+            "pull_hex": "#6a5e74",
+            "pull_size": 1
+          }
+        }
+      ]
+    },
+    {
+      "height_mm": 81.28,
+      "drawers": [
+        {
+          "width_units": 9,
+          "width_mm": 114.3,
+          "width_in": 4.5,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 2
+        },
+        {
+          "width_units": 9,
+          "width_mm": 114.3,
+          "width_in": 4.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 2
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "split": true,
+          "mini_height_mm": 40.64,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 9,
+          "width_mm": 114.3,
+          "width_in": 4.5,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 2
+        },
+        {
+          "width_units": 9,
+          "width_mm": 114.3,
+          "width_in": 4.5,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 2
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 2
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 2
+        }
+      ]
+    },
+    {
+      "height_mm": 60.96,
+      "drawers": [
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 1
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 1
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 1
+        }
+      ]
+    },
+    {
+      "height_mm": 101.6,
+      "drawers": [
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 6
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 6
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 1,
+          "face_hex": "#372f3d",
+          "pull_color": 4,
+          "pull_hex": "#6a5e74",
+          "pull_size": 6
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 6
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 6
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "split": true,
+          "mini_height_mm": 50.8,
+          "top": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 6
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 6
+        }
+      ]
+    },
+    {
+      "height_mm": 76.2,
+      "drawers": [
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 4
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 4
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 4
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 4
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 6,
+          "width_mm": 76.2,
+          "width_in": 3,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 4
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 4
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        }
+      ]
+    },
+    {
+      "height_mm": 76.2,
+      "drawers": [
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 4
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 4
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 4
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 4
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        }
+      ]
+    },
+    {
+      "height_mm": 76.2,
+      "drawers": [
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 5
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 5
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 5
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 5
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        }
+      ]
+    },
+    {
+      "height_mm": 76.2,
+      "drawers": [
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 6
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 6,
+            "face_hex": "#94849e",
+            "pull_color": 3,
+            "pull_hex": "#574c61",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 6
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 2,
+            "face_hex": "#463c50",
+            "pull_color": 5,
+            "pull_hex": "#7e7189",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 2,
+            "face_hex": "#463c50",
+            "pull_color": 5,
+            "pull_hex": "#7e7189",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 6
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 3,
+            "face_hex": "#574c61",
+            "pull_color": 6,
+            "pull_hex": "#94849e",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 4,
+            "face_hex": "#6a5e74",
+            "pull_color": 1,
+            "pull_hex": "#372f3d",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 5,
+          "width_mm": 63.5,
+          "width_in": 2.5,
+          "split": true,
+          "mini_height_mm": 38.1,
+          "top": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          },
+          "bottom": {
+            "face_color": 5,
+            "face_hex": "#7e7189",
+            "pull_color": 2,
+            "pull_hex": "#463c50",
+            "pull_size": 1
+          }
+        },
+        {
+          "width_units": 4,
+          "width_mm": 50.8,
+          "width_in": 2,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 6
+        }
+      ]
+    },
+    {
+      "height_mm": 60.96,
+      "drawers": [
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 4
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 4
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 6,
+          "face_hex": "#94849e",
+          "pull_color": 3,
+          "pull_hex": "#574c61",
+          "pull_size": 4
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 4
+        },
+        {
+          "width_units": 8,
+          "width_mm": 101.6,
+          "width_in": 4,
+          "face_color": 2,
+          "face_hex": "#463c50",
+          "pull_color": 5,
+          "pull_hex": "#7e7189",
+          "pull_size": 4
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 3,
+          "face_hex": "#574c61",
+          "pull_color": 6,
+          "pull_hex": "#94849e",
+          "pull_size": 4
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 4,
+          "face_hex": "#6a5e74",
+          "pull_color": 1,
+          "pull_hex": "#372f3d",
+          "pull_size": 4
+        },
+        {
+          "width_units": 7,
+          "width_mm": 88.9,
+          "width_in": 3.5,
+          "face_color": 5,
+          "face_hex": "#7e7189",
+          "pull_color": 2,
+          "pull_hex": "#463c50",
+          "pull_size": 4
+        }
+      ]
+    }
+  ]
+};</script>
+<script>
+// ── Seeded RNG ────────────────────────────────────────────────
+function rng32(seed) {
+  let a = (seed ^ 0xDEADBEEF) >>> 0;
+  return () => {
+    a += 0x6D2B79F5;
+    let t = Math.imul(a ^ (a >>> 15), a | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ── Color utilities ───────────────────────────────────────────
+function hexToRgb(h) {
+  const s = h.replace('#','');
+  return [parseInt(s.slice(0,2),16), parseInt(s.slice(2,4),16), parseInt(s.slice(4,6),16)];
+}
+function rgbToHex(r,g,b) {
+  return '#' + [r,g,b].map(v => Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,'0')).join('');
+}
+function hslToHex(h,s,l) {
+  h=((h%360)+360)%360; s=Math.max(0,Math.min(100,s))/100; l=Math.max(0,Math.min(100,l))/100;
+  const a=s*Math.min(l,1-l);
+  const f=n=>{const k=(n+h/30)%12; return l-a*Math.max(-1,Math.min(k-3,Math.min(9-k,1)));};
+  return rgbToHex(f(0)*255,f(8)*255,f(4)*255);
+}
+function rgbToHsl(r,g,b) {
+  r/=255;g/=255;b/=255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b); let h,s,l=(max+min)/2;
+  if(max===min){h=s=0;}else{
+    const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
+    switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;}
+    h/=6;
+  }
+  return [h*360,s*100,l*100];
+}
+function lerp(a,b,t){return a+(b-a)*t;}
+
+function samplePalette(t, stops, steps) {
+  t = Math.max(0, Math.min(1, t));
+  if (steps > 1) { t = Math.floor(t * steps) / (steps - 1); t = Math.max(0,Math.min(1,t)); }
+  const n = stops.length - 1;
+  const sc = t * n;
+  const i = Math.min(Math.floor(sc), n - 1);
+  const f = sc - i;
+  const a = hexToRgb(stops[i]), b = hexToRgb(stops[Math.min(i+1,n)]);
+  return rgbToHex(lerp(a[0],b[0],f), lerp(a[1],b[1],f), lerp(a[2],b[2],f));
+}
+
+// ── Palette engine (from Palette Lab) ────────────────────────
+const _prng = {fn: Math.random};
+const _rnd = (a,b) => _prng.fn()*(b-a)+a;
+const _pick = arr => arr[Math.floor(_prng.fn()*arr.length)];
+function _shuffle(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(_prng.fn()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+const CURATED = [
+  ['264653','2a9d8f','e9c46a','f4a261','e76f51'],
+  ['003049','d62828','f77f00','fcbf49','eae2b7'],
+  ['606c38','283618','fefae0','dda15e','bc6c25'],
+  ['8ecae6','219ebc','023047','ffb703','fb8500'],
+  ['081c15','1b4332','2d6a4f','40916c','52b788'],
+  ['2b2d42','8d99ae','edf2f4','ef233c','d90429'],
+  ['432818','99582a','ffe6a7','bb9457','6f1d1b'],
+  ['03045e','0077b6','00b4d8','90e0ef','caf0f8'],
+  ['22223b','4a4e69','9a8c98','c9ada7','f2e9e4'],
+  ['386641','6a994e','a7c957','f2e8cf','bc4749'],
+  ['ccd5ae','e9edc9','fefae0','faedcd','d4a373'],
+  ['5f0f40','9a031e','fb8b24','e36414','0f4c5c'],
+  ['001219','005f73','0a9396','94d2bd','ee9b00'],
+  ['355070','6d597a','b56576','e56b6f','eaac8b'],
+  ['2f3e46','354f52','52796f','84a98c','cad2c5'],
+  ['d00000','dc2f02','e85d04','f48c06','faa307'],
+  ['463f3a','8a817c','bcb8b1','f4f3ee','e0afa0'],
+  ['247ba0','70c1b3','b2dbbf','f3ffbd','ff1654'],
+  ['012a4a','013a63','01497c','2a6f97','61a5c2'],
+  ['590d22','800f2f','a4133c','c9184a','ff4d6d'],
+  // Yellow-forward sets
+  ['3b2f04','6b5510','9a7b1a','c4a02a','e0be4a','edd27d'],
+  ['2e3502','55611a','7d8c2f','a7b545','cdd868','dbe07f'],
+  ['1c1c1c','4d4632','7d6c33','b39b3d','d9bd4f','ecd47f'],
+  ['5c3d00','8a5a00','b57b00','dba018','f0bd3b','f7d468'],
+].map(p => p.map(h => '#'+h));
+
+// No-white rule: bright white against 5 colors is too much contrast.
+// Whites/near-whites become tinted pastels of their own hue instead.
+function sanitizeStops(stops) {
+  return stops.map(hex => {
+    let [h, s, l] = rgbToHsl(...hexToRgb(hex));
+    if (l > 84) l = _rnd(76, 84);              // cap lightness
+    // Tint only GENUINE near-whites. The old threshold (l>68) also caught
+    // deliberately muted mid-lights and forced their saturation back up,
+    // which made muted palettes impossible.
+    if (s < 14 && l > 80) s = _rnd(16, 28);
+    return hslToHex(h, s, l);
+  });
+}
+
+// ── Muted / low-contrast family ──────────────────────────────
+// Curated muted sets in the apothecary register — pharmacy glass,
+// aged label paper, oxide and glaze. All compressed in value.
+const CURATED_MUTED = [
+  ['2f2a24','4a4036','6b5d4a','8a7a61','a89878','c2b494'], // bone / aged paper
+  ['232b28','35443d','4a5d52','68806f','8aa38d','abbfa8'], // verdigris
+  ['2b1d0e','4a3418','6b4d22','8f6b30','b08a45','cba76a'], // amber glass
+  ['1a2230','283449','3a4a63','52657f','6f829a','8f9fb4'], // cobalt, dusty
+  ['2e2320','4a3630','66493f','85604f','a37b64','bd9a83'], // iron oxide
+  ['262d2d','3a4544','4f5e5b','6b7d78','8a9c96','aab9b2'], // slate celadon
+  ['2a2622','433c33','5d5346','786c5c','938674','ada08c'], // linen / flax
+  ['241f28','3a3242','52485c','6d6178','8a7d94','a89bb0'], // dried lavender
+].map(p => p.map(h => '#'+h));
+
+// Squeeze a palette's lightness toward its mean, keeping hue/saturation
+// relationships intact. The hand-built ramps above span ~50 points; the
+// generative muted modes span ~30, so compress to keep the mood honest.
+function compressValue(stops, amount) {
+  const hsl = stops.map(h => rgbToHsl(...hexToRgb(h)));
+  const ls = hsl.map(x => x[2]);
+  const mean = ls.reduce((a, b) => a + b, 0) / ls.length;
+  const k = amount ?? _rnd(0.55, 0.72);
+  return hsl.map(([h, s, l]) => hslToHex(h, s, mean + (l - mean) * k));
+}
+
+// MUTED MONO — one hue, low saturation, and a COMPRESSED value band.
+// The whole point: lightest and darkest are close together, so the
+// composition reads as tone-on-tone rather than a full ramp.
+function genMutedMono() {
+  const hue  = _prng.fn() < 0.3 ? _rnd(35, 58) : _rnd(0, 360);
+  const sat  = _rnd(7, 20);                 // muted, but still tinted
+  const span = _rnd(20, 34);                // total lightness range
+  const ctr  = _rnd(30 + span/2, 74 - span/2);
+  const lo   = ctr - span/2;
+  return [...Array(6)].map((_, i) =>
+    hslToHex(hue + _rnd(-3, 3), sat * _rnd(0.85, 1.15), lo + span * i / 5));
+}
+
+// DUOTONE — two hues drifting across a compressed muted band. Reads as
+// one family until you notice the ends are different colours.
+function genDuotone() {
+  const hA = _rnd(0, 360);
+  const hB = hA + _pick([-1, 1]) * _rnd(90, 190);
+  const sat = _rnd(10, 26);
+  const span = _rnd(22, 34);
+  const ctr = _rnd(32 + span/2, 72 - span/2);
+  const lo = ctr - span/2;
+  return [...Array(6)].map((_, i) => {
+    const t = i / 5;
+    return hslToHex(hA + (hB - hA) * t, sat * _rnd(0.9, 1.1), lo + span * t);
+  });
+}
+
+// ISOLUMINANT — nearly constant value, hue sweeps instead. Kills value
+// structure entirely, so the etch carries the composition and colour
+// reads as pure hue. Lightness creeps up 0.8/step ONLY so the dark→light
+// sort downstream preserves the hue order.
+function genIsoluminant() {
+  const h0 = _rnd(0, 360);
+  const sweep = _pick([-1, 1]) * _rnd(55, 140);
+  const L = _rnd(42, 62);
+  const sat = _rnd(18, 38);
+  return [...Array(6)].map((_, i) =>
+    hslToHex(h0 + sweep * i / 5, sat * _rnd(0.9, 1.1), L + i * 0.8));
+}
+
+// NEUTRAL + POP — five near-greys and one saturated stop. At quantize 6
+// the accent lands on roughly a sixth of the faces: a strong minority,
+// not a rarity. Reads like a quiet cabinet with one colour breaking out.
+function genNeutralPop() {
+  const hue = _rnd(0, 360);
+  const span = _rnd(26, 40);
+  const lo = _rnd(26, 74 - span);
+  const stops = [...Array(6)].map((_, i) =>
+    hslToHex(hue + _rnd(-8, 8), _rnd(4, 11), lo + span * i / 5));
+  const at = Math.floor(_rnd(0, 6));
+  stops[at] = hslToHex(hue + _pick([-1, 1]) * _rnd(120, 180),
+                       _rnd(55, 80), _rnd(40, 62));
+  return stops;
+}
+
+// Monochromatic gradient — one hue, a disciplined value ramp
+function genMonoRamp() {
+  // Yellow bias: a third of mono palettes land in the yellow band
+  const base = _prng.fn() < 0.33 ? _rnd(38, 58) : _rnd(0, 360);
+  const lRamp = [_rnd(13,19), _rnd(26,33), _rnd(39,47),
+                 _rnd(52,60), _rnd(65,72), _rnd(76,83)];
+  const sPeak = _rnd(55, 85);
+  return lRamp.map(L => {
+    const ef = 1 - Math.abs(L - 50) / 50 * 0.35; // sat eases at extremes
+    return hslToHex(base + _rnd(-4, 4), sPeak * ef, L);
+  });
+}
+
+function _extendTo6(hexes) {
+  if (hexes.length >= 6) return hexes.slice(0,6);
+  let best=hexes[0], bestS=-1;
+  hexes.forEach(h=>{const [,s]=rgbToHsl(...hexToRgb(h));if(s>bestS){bestS=s;best=h;}});
+  const [h,s,l]=rgbToHsl(...hexToRgb(best));
+  return hexes.concat([hslToHex(h+25,s*0.85,Math.max(20,Math.min(85,l+(l<50?22:-22))))]);
+}
+
+function genValueRamp() {
+  const harmony = _pick(['mono','analogous','complementary','triadic']);
+  // Yellow bias: a quarter of ramps anchor in the yellow band
+  const base = _prng.fn() < 0.25 ? _rnd(38, 58) : _prng.fn()*360;
+  let hs = harmony==='mono'?[base]:harmony==='analogous'?[base,base+25,base-25,base+12]:
+           harmony==='complementary'?[base,base+180]:[base,base+120,base+240];
+  const lRamp=[_rnd(14,22),_rnd(30,40),_rnd(44,54),_rnd(57,67),_rnd(71,80),_rnd(85,93)];
+  const bSat=_rnd(45,75);
+  return lRamp.map((L,i)=>{
+    const hue=hs[i%hs.length]+_rnd(-8,8);
+    const ef=1-Math.abs(L-53)/53*0.45;
+    return hslToHex(hue,bSat*ef+_rnd(-8,8),L);
+  });
+}
+
+function genAnalogNeutral() {
+  const base=_prng.fn()*360, sat=_rnd(40,70);
+  return [
+    hslToHex(base+_rnd(-5,5),sat*0.3,_rnd(12,20)),
+    hslToHex(base-30,sat,_rnd(38,48)),
+    hslToHex(base-12,sat,_rnd(48,58)),
+    hslToHex(base+12,sat,_rnd(56,66)),
+    hslToHex(base+30,sat*0.9,_rnd(64,74)),
+    hslToHex(base+_rnd(-5,5),sat*0.2,_rnd(88,95)),
+  ];
+}
+
+function genCuratedRemix() {
+  const p=_pick(CURATED), dh=_rnd(-25,25);
+  return _extendTo6(p.map(hex=>{
+    let [h,s,l]=rgbToHsl(...hexToRgb(hex));
+    return hslToHex(h+dh+_rnd(-6,6),Math.max(0,Math.min(100,s+_rnd(-8,8))),Math.max(0,Math.min(100,l+_rnd(-6,6))));
+  }));
+}
+
+function generatePalette() {
+  _prng.fn = (()=>{let a=Date.now()^(Math.random()*0xffffffff>>>0);return()=>{a+=0x6D2B79F5;let t=Math.imul(a^(a>>>15),a|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;};})();
+  // Mood pools. "muted" = compressed value range, low saturation.
+  const POOL = {
+    muted: ['mutedMono','mutedMono','mutedMono','duotone',
+            'curatedMuted','curatedMuted','isoluminant','neutralPop'],
+    vivid: ['curated','curatedRemix','valueRamp','monoRamp','monoRamp',
+            'analogNeutral'],
+  };
+  POOL.any = POOL.vivid.concat(POOL.muted);
+  const m = _pick(POOL[S.paletteMood] || POOL.any);
+
+  let stops;
+  if (m==='curated') stops=_extendTo6(_pick(CURATED).slice());
+  else if (m==='curatedMuted') stops=compressValue(_pick(CURATED_MUTED).slice());
+  else if (m==='curatedRemix') stops=genCuratedRemix();
+  else if (m==='valueRamp') stops=genValueRamp();
+  else if (m==='monoRamp') stops=genMonoRamp();
+  else if (m==='mutedMono') stops=genMutedMono();
+  else if (m==='duotone') stops=genDuotone();
+  else if (m==='isoluminant') stops=genIsoluminant();
+  else if (m==='neutralPop') stops=genNeutralPop();
+  else stops=genAnalogNeutral();
+  S.lastPaletteMode = m;
+  stops = sanitizeStops(stops);   // no whites, ever
+  // Sort dark → light for consistent gradient direction
+  return stops.sort((a,b)=>{ const [,,la]=rgbToHsl(...hexToRgb(a)); const [,,lb]=rgbToHsl(...hexToRgb(b)); return la-lb; });
+}
+
+function deriveShellColor(stops) {
+  const hsls = stops.map(c => rgbToHsl(...hexToRgb(c)));
+  const hues = hsls.map(h => h[0]);
+  const domHue = _pick(hues);
+  const compHue = (domHue + 180) % 360;
+  const splitHue = (domHue + _pick([150, 210])) % 360;
+  // Dark grounds only — the shell grid recedes so faces and knobs pop
+  const candidates = [
+    hslToHex(_pick([domHue, splitHue]), _rnd(28, 55), _rnd(10, 20)), // deep saturated ground
+    hslToHex(compHue, _rnd(20, 40), _rnd(14, 24)),       // dark complement ground
+    hslToHex(domHue,  _rnd(4, 10),  _rnd(14, 22)),       // charcoal tint
+    hslToHex(_rnd(20, 40), _rnd(10, 18), _rnd(16, 24)),  // warm dark brown-gray
+    hslToHex(_pick(hues), _rnd(12, 26), _rnd(18, 28)),   // muted dark of a palette hue
+  ];
+  return _pick(candidates);
+}
+
+function renderSwatches(stops) {
+  const el = document.getElementById('paletteSwatches');
+  el.innerHTML = '';
+  stops.forEach(c => {
+    const d = document.createElement('div');
+    d.style.cssText = `flex:1;background:${c};`;
+    el.appendChild(d);
+  });
+}
+
+// ── State ────────────────────────────────────────────────────
+const S = {
+  seed: 23408,
+  compW: 762,        // mm
+  compH: 1016,       // mm
+  unitSize: 12.7,    // mm per grid unit (0.5 inch — gives 3,3.5,4,4.5,5" steps)
+  maxWidthIn: 127,   // mm — max drawer front width
+  rowHeightIn: 60.96,// mm — row height (uniform mode)
+  rowHeightMode: 'random',
+  splitChance: 1.0,  // chance a 76.2 slot becomes a stacked mini pair
+  splitPattern: 'center',
+  // derived
+  unitsWide: 30,
+  numRows: 16,
+  maxWidth: 5,
+  rowHeight: 1,
+  layoutPattern: 'random',
+  jitter: 1.0,
+  colorMode: 'grid',
+  gradAngle: 135,
+  colorBy: 'noise',
+  colorSeed: 57518,
+  imported: false,   // true = layout came from a file, don't regenerate it
+  paletteMood: 'muted',   // any | muted | vivid
+  colorRotate: 0,         // colour-cycle offset (Cycle colors button)
+  lastPaletteMode: '',
+  colorSteps: 6,
+  radialX: 0.5,
+  radialY: 0.5,
+  radialScale: 1.8,
+  // Default: sunset — dusk violet → magenta → crimson → orange → gold → peach
+  activePalette: ['#422b88','#4d3785','#6841aa','#b086eb','#ba93ec','#e0c5ff'],
+  shellColor: '#655b97',
+  gapSize: 2,
+  pullShape: 'circle',
+  pullMorph: 'radial',
+  pullMin: 8,
+  pullMax: 18,
+  pullColorMode: 'invert',
+};
+
+// ── Composition ──────────────────────────────────────────────
+function rowSeams(widths) {
+  const s = new Set(); let c = 0;
+  for (let i = 0; i < widths.length - 1; i++) { c += widths[i]; s.add(c); }
+  return s;
+}
+function hasSeamConflict(a, b) {
+  const sa = rowSeams(a);
+  for (const v of rowSeams(b)) if (sa.has(v)) return true;
+  return false;
+}
+function genRowWidths(total, minW, maxW, rng) {
+  const minN = Math.ceil(total / maxW);
+  const maxN = Math.floor(total / minW);
+  const n = Math.floor(rng() * (maxN - minN + 1)) + minN;
+  const w = Array(n).fill(minW);
+  let rem = total - n * minW;
+  // Shuffle slot order, then round-robin until all remainder is distributed
+  const order = Array.from({length: n}, (_, i) => i).sort(() => rng() - 0.5);
+  let pass = 0;
+  while (rem > 0) {
+    const i = order[pass % n];
+    if (w[i] < maxW) { w[i]++; rem--; }
+    pass++;
+  }
+  return w;
+}
+
+let composition = [];
+
+function deriveUnits() {
+  S.unitsWide = Math.round(S.compW / S.unitSize);
+  S.numRows   = Math.round(S.compH / S.rowHeightIn);
+  S.minWidth  = Math.round(76.2  / S.unitSize); // 76.2mm minimum drawer face
+  S.maxWidth  = Math.max(S.minWidth, Math.round(S.maxWidthIn / S.unitSize));
+  S.rowHeight = 1;
+  // knob sizes as % of cell pixel height — real: 6.35mm–19.05mm vs row height
+  S.pullMin = Math.round((6.35  / S.rowHeightIn) * 100);
+  S.pullMax = Math.round((19.05 / S.rowHeightIn) * 100);
+  document.getElementById('v-pmin').textContent = S.pullMin + '%';
+  document.getElementById('v-pmax').textContent = S.pullMax + '%';
+  const el = document.getElementById('derived-grid');
+  if (el) el.textContent = `${S.unitsWide} units wide · ${S.numRows} rows`;
+}
+
+function patternBias(nx, ny) {
+  // Returns t in 0–1 biasing width toward min(0) or max(1)
+  switch (S.layoutPattern) {
+    case 'widen-x':   return nx;
+    case 'widen-y':   return ny;
+    case 'centered':  return 1 - Math.abs(nx - 0.5) * 2;
+    case 'edges':     return Math.abs(nx - 0.5) * 2;
+    case 'wave':      return Math.sin(nx * Math.PI * 2) * 0.5 + 0.5;
+    case 'diagonal':  return (nx + ny) / 2;
+    default:          return 0.5;
+  }
+}
+
+function genRowWithPattern(total, minW, maxW, rng, rowIdx, numRows) {
+  const minN = Math.ceil(total / maxW);
+  const maxN = Math.floor(total / minW);
+
+  if (S.layoutPattern === 'random' || S.jitter >= 1) {
+    return genRowWidths(total, minW, maxW, rng);
+  }
+
+  // Pick n toward middle of valid range for clean patterns
+  const n = Math.round(minN + (maxN - minN) * 0.5);
+  const ny = numRows > 1 ? rowIdx / (numRows - 1) : 0.5;
+
+  // Compute ideal width for each slot
+  const w = Array.from({length: n}, (_, i) => {
+    const nx = n > 1 ? i / (n - 1) : 0.5;
+    const pureT = patternBias(nx, ny);
+    // Blend pattern with random jitter
+    const randT = rng();
+    const t = pureT * (1 - S.jitter) + randT * S.jitter;
+    return Math.round(minW + t * (maxW - minW));
+  }).map(v => Math.max(minW, Math.min(maxW, v)));
+
+  // Adjust sum to equal total
+  let diff = total - w.reduce((a, b) => a + b, 0);
+  let pass = 0;
+  while (diff !== 0 && pass < n * (maxW - minW) * 4) {
+    const i = pass % n;
+    if (diff > 0 && w[i] < maxW) { w[i]++; diff--; }
+    if (diff < 0 && w[i] > minW) { w[i]--; diff++; }
+    pass++;
+  }
+  return w;
+}
+
+// Row height palette: 2.4″ / 3″ / 3.2″ / 4″
+// 38.1mm minis exist ONLY as split products inside 76.2 rows — never as
+// a full row (a full strip of smalls reads as grid, not disruption).
+// To revert: add 38.1 back to this list.
+const ROW_HEIGHTS = [60.96, 76.2, 81.28, 101.6];
+const SPLIT_ROW_H = 76.2;
+const MINI_H = 38.1;
+
+function genRowHeights(rng) {
+  if (S.rowHeightMode === 'uniform') {
+    const n = Math.max(1, Math.round(S.compH / S.rowHeightIn));
+    return Array(n).fill(S.rowHeightIn);
+  }
+  const hs = [];
+  let rem = S.compH;
+  let i = 0;
+  while (rem >= ROW_HEIGHTS[0]) {
+    const fits = ROW_HEIGHTS.filter(h => h <= rem);
+    const t = 1 - rem / S.compH; // 0 at top → 1 at bottom
+    let h;
+    switch (S.rowHeightMode) {
+      case 'alternate': h = (i % 2 === 0) ? fits[0] : fits[fits.length-1]; break;
+      case 'grad-down': h = fits[Math.min(fits.length-1, Math.floor(t * fits.length))]; break;
+      case 'grad-up':   h = fits[Math.min(fits.length-1, Math.floor((1-t) * fits.length))]; break;
+      default:          h = fits[Math.floor(rng() * fits.length)]; // random
+    }
+    hs.push(h);
+    rem -= h;
+    i++;
+  }
+  return hs;
+}
+
+function generate() {
+  deriveUnits();
+  const rng = rng32(S.seed);
+  composition = [];
+  const heights = genRowHeights(rng);
+  S.numRows = heights.length;
+
+  // Splits use their own RNG stream so changing split settings never
+  // re-rolls the width layout for a given seed.
+  const rngS = rng32(S.seed * 7 + 13);
+  // Patch centers for 'patches' mode (normalized cabinet coords)
+  const patches = [
+    { x: rngS(), y: rngS() },
+    { x: rngS(), y: rngS() },
+  ];
+  const patchR = 0.20; // patch radius, fraction of cabinet
+
+  // Probability multiplier by position for the chosen split pattern
+  function splitWeight(nx, ny) {
+    switch (S.splitPattern) {
+      case 'patches': {
+        let best = 0;
+        for (const p of patches) {
+          const d2 = (nx - p.x) ** 2 + (ny - p.y) ** 2;
+          best = Math.max(best, Math.exp(-d2 / (2 * patchR * patchR)));
+        }
+        return best * 3;          // dense cores, fast falloff
+      }
+      case 'center':  return (1 - Math.abs(nx - 0.5) * 2) * 2;
+      case 'edges':   return Math.abs(nx - 0.5) * 2 * 2;
+      default:        return 1;   // scatter
+    }
+  }
+
+  let prev = null;
+  for (let r = 0; r < S.numRows; r++) {
+    // Short rows get proportionally narrower drawers — same aspect-ratio
+    // range as a standard 60.96 row (e.g. 30.48 row: 3–5 units wide).
+    // Split-eligible (76.2) rows also allow narrow 4u slots so that
+    // splits can produce squarish minis instead of bricks.
+    const hmm = heights[r];
+    const scale = Math.min(1, hmm / 60.96);
+    // Split rows run narrow overall: slots 4–6u, so most are split
+    // candidates (≤5u) and the 6u slots become square full-height breakers.
+    const minW = hmm === SPLIT_ROW_H ? 4
+               : Math.max(3, Math.round(S.minWidth * scale));
+    const maxW = hmm === SPLIT_ROW_H ? 6
+               : Math.max(minW, Math.round(S.maxWidth * scale));
+    let widths, tries = 0;
+    do {
+      widths = genRowWithPattern(S.unitsWide, minW, maxW, rng, r, S.numRows);
+      tries++;
+    } while (prev && tries < 30 && hasSeamConflict(widths, prev));
+    // Guarantee the row fills the width EXACTLY (flush right). When minW==maxW
+    // (e.g. drawer width forced to the 76.2mm minimum) and unitsWide isn't
+    // divisible, the adjust loop can't balance and the row overflows — the
+    // ragged/overlapping right edge. Force the last drawer to absorb the
+    // remainder; collapse any drawer that would go sub-1u into its neighbour.
+    let _sum = widths.reduce((a, b) => a + b, 0);
+    if (widths.length && _sum !== S.unitsWide) {
+      widths[widths.length - 1] += S.unitsWide - _sum;
+      while (widths.length > 1 && widths[widths.length - 1] < 1) {
+        const under = widths.pop();
+        widths[widths.length - 1] += under;
+      }
+      if (widths[0] < 1) widths[0] = S.unitsWide;   // pathological single-cell
+    }
+    // Split-eligible rows: each slot may become two stacked 38.1 minis.
+    // Placement follows the chosen split pattern. Runs of consecutive
+    // splits cap at 3 — with a rare (15%) run stretching to 4 — so a
+    // full drawer always breaks up longer mini stretches
+    // (row-burst is exempt — its whole point is the unbroken band).
+    const ny = S.numRows > 1 ? r / (S.numRows - 1) : 0.5;
+    const rowBurst = heights[r] === SPLIT_ROW_H && rngS() < S.splitChance;
+    // Splits come in two registers:
+    //  DENSE (76.2 rows): irregular runs of mini pairs — each run draws
+    //    its own length (1–4) and each break its own gap (1–2 bigs).
+    //  SPRINKLE (81.28/101.6 rows): at most 1–2 lone splits per row —
+    //    rare discovery moments that set up diagonal reads across the
+    //    field. (60.96 rows never split: 30.48 halves are too small.)
+    const isDense = heights[r] === SPLIT_ROW_H;
+    const canSplit = heights[r] >= SPLIT_ROW_H;
+    let xu = 0, run = 0, runCap = 3, gap = 0, sprinkles = 0;
+    const MAX_SPLIT_W = 5;    // dense rows: only slots ≤5u may split
+    const SPRINKLE_W = 7;     // tall rows: slots ≤7u may sprinkle
+    const splits = widths.map(w => {
+      const nx = (xu + w / 2) / S.unitsWide;
+      xu += w;
+      if (!canSplit) return false;
+      if (!isDense) {
+        // Sprinkle register — rare, isolated, max 2 per row
+        if (w > SPRINKLE_W || sprinkles >= 2) return false;
+        const s = rngS() < 0.12 * S.splitChance * splitWeight(nx, ny);
+        if (s) sprinkles++;
+        return s;
+      }
+      if (w > MAX_SPLIT_W) return false;
+      if (S.splitPattern === 'row-burst') return rowBurst;
+      if (gap > 0) { gap--; run = 0; return false; }
+      let s = rngS() < Math.min(1, S.splitChance * splitWeight(nx, ny));
+      if (s && run === 0) {
+        const t = rngS(); // run length: 1 (20%), 2 (35%), 3 (30%), 4 (15%)
+        runCap = t < 0.20 ? 1 : t < 0.55 ? 2 : t < 0.85 ? 3 : 4;
+      }
+      if (s && run >= runCap) {
+        s = false;
+        gap = rngS() < 0.4 ? 1 : 0; // sometimes two bigs in a row
+      }
+      run = s ? run + 1 : 0;
+      return s;
+    });
+    // Guarantee: every split-capable row carries at least one mini pair,
+    // so minis thread vertically through the whole composition.
+    // (60.96 rows stay quiet — 30.48 halves failed the physical test.)
+    if (canSplit && !splits.some(Boolean)) {
+      const okW = isDense ? MAX_SPLIT_W : SPRINKLE_W;
+      const cand = widths.map((w, i) => w <= okW ? i : -1).filter(i => i >= 0);
+      if (cand.length) {
+        splits[cand[Math.floor(rngS() * cand.length)]] = true;
+      } else {
+        // No slot under the width cap — split the narrowest one anyway;
+        // the guarantee outranks the proportion rule.
+        const minI = widths.reduce((b, w, i) => w < widths[b] ? i : b, 0);
+        splits[minI] = true;
+      }
+    }
+    // h in 0.8″ (20.32mm) units so the renderer scales rows proportionally
+    composition.push({ h: heights[r] / 20.32, hmm: heights[r], widths, splits });
+    prev = widths;
+  }
+}
+
+// ── Gradient T ───────────────────────────────────────────────
+function gradT(nx, ny, deg) {
+  const r = deg * Math.PI / 180;
+  const c = Math.cos(r), s = Math.sin(r);
+  const lo = Math.min(0,c) + Math.min(0,s);
+  const hi = Math.max(0,c) + Math.max(0,s);
+  if (Math.abs(hi-lo) < 1e-6) return 0.5;
+  return (nx*c + ny*s - lo) / (hi - lo);
+}
+
+// ── Render ───────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function buildCells(W, H) {
+  const totalH = composition.reduce((s,r) => s + r.h, 0);
+  const uw = W / S.unitsWide;
+  const uh = H / totalH;
+  const cells = [];
+  let py = 0;
+  for (const row of composition) {
+    let px = 0;
+    row.widths.forEach((w, i) => {
+      if (row.splits && row.splits[i]) {
+        // Split slot: two stacked mini cells, top (T) then bottom (B)
+        const hh = row.h * uh / 2;
+        cells.push({ w, h: row.h/2, px, py,          pw: w*uw, ph: hh, slot: 'T' });
+        cells.push({ w, h: row.h/2, px, py: py + hh, pw: w*uw, ph: hh, slot: 'B' });
+      } else {
+        cells.push({ w, h: row.h, px, py, pw: w*uw, ph: row.h*uh });
+      }
+      px += w * uw;
+    });
+    py += row.h * uh;
+  }
+  return cells;
+}
+
+// ── Seeded field helpers for the scatter color modes ─────────
+function hash01(a, b, c) {
+  const h = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
+  return h - Math.floor(h);
+}
+// Smooth value noise over normalized coords, deterministic from seed
+function vnoise(nx, ny, freq, seed) {
+  const x = nx * freq, y = ny * freq;
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const v00 = hash01(ix, iy, seed),     v10 = hash01(ix + 1, iy, seed);
+  const v01 = hash01(ix, iy + 1, seed), v11 = hash01(ix + 1, iy + 1, seed);
+  return (v00 * (1 - sx) + v10 * sx) * (1 - sy)
+       + (v01 * (1 - sx) + v11 * sx) * sy;
+}
+// K seeded cluster centers, each owning a palette position
+function colorClusters(K) {
+  const out = [];
+  for (let i = 0; i < K; i++)
+    out.push({ x: hash01(i, 3, S.colorSeed), y: hash01(i, 7, S.colorSeed),
+               t: hash01(i, 11, S.colorSeed) });
+  return out;
+}
+
+function cellT(cell, W, H) {
+  const nx = (cell.px + cell.pw/2) / W;
+  const ny = (cell.py + cell.ph/2) / H;
+  if (S.colorMode === 'gradient') return gradT(nx, ny, S.gradAngle);
+  switch (S.colorBy) {
+    case 'x': return nx;
+    case 'y': return ny;
+    case 'diagonal': return (nx + ny) / 2;
+    case 'size': {
+      const maxArea = S.maxWidth * S.rowHeight;
+      return (cell.w * cell.h - 1) / Math.max(1, maxArea - 1);
+    }
+    case 'radial': {
+      const dx = nx - S.radialX, dy = ny - S.radialY;
+      return 1 - Math.min(1, Math.sqrt(dx*dx + dy*dy) * S.radialScale);
+    }
+    case 'clusters': {
+      // Voronoi patches: each cell takes its nearest cluster's color
+      let best = 0, bd = Infinity;
+      for (const c of colorClusters(6)) {
+        const d = (nx - c.x) ** 2 + (ny - c.y) ** 2;
+        if (d < bd) { bd = d; best = c.t; }
+      }
+      return best;
+    }
+    case 'multiradial': {
+      // Several small bursts glowing out of a dark ground
+      let t = 0;
+      for (const c of colorClusters(4)) {
+        const d = Math.sqrt((nx - c.x) ** 2 + (ny - c.y) ** 2);
+        t = Math.max(t, Math.max(0, 1 - d * (2.5 + c.t * 2)));
+      }
+      return t;
+    }
+    case 'noise':
+      // Drifting organic blobs
+      return vnoise(nx, ny, 3.2, S.colorSeed);
+    case 'sizemix': {
+      // Drawer scale steers color, noise breaks the correlation —
+      // big and small drawers drift toward opposite palette ends
+      const maxA = S.maxWidth * 5;
+      const sizeT = Math.min(1, (cell.w * cell.h - 1) / Math.max(1, maxA - 1));
+      return Math.min(1, sizeT * 0.6 + vnoise(nx, ny, 2.5, S.colorSeed) * 0.55);
+    }
+    case 'shuffle':
+      // Pure per-drawer confetti, seeded
+      return hash01(Math.round(cell.px), Math.round(cell.py), S.colorSeed);
+    default: return nx;
+  }
+}
+
+// Colour-cycle rotation. S.colorRotate shifts every face to the next
+// paint (2→1, 3→2, … 1→6) WITHOUT touching the palette legend: the six
+// paints keep their numbers, only the assignment cycles. Sampling reads
+// this rotated view; export's nearestStop reads the canonical palette,
+// so face_color numbers travel while palette[N] stays fixed.
+function paletteView() {
+  const rot = ((S.colorRotate || 0) % S.activePalette.length +
+               S.activePalette.length) % S.activePalette.length;
+  if (!rot) return S.activePalette;
+  const N = S.activePalette.length;
+  return S.activePalette.map((_, i) => S.activePalette[(i - rot + N) % N]);
+}
+
+function cellColor(cell, W, H) {
+  return samplePalette(cellT(cell, W, H), paletteView(), S.colorSteps);
+}
+
+function pullColor(cell, W, H) {
+  const t = cellT(cell, W, H);
+  const pal = paletteView();
+  switch (S.pullColorMode) {
+    case 'invert':  return samplePalette(1 - t, pal, S.colorSteps);
+    case 'shift':   return samplePalette((t + 0.5) % 1, pal, S.colorSteps);
+    case 'dark':    return samplePalette(Math.min(1, t + 0.45), pal, S.colorSteps);
+    case 'light':   return samplePalette(Math.max(0, t - 0.45), pal, S.colorSteps);
+    default:        return samplePalette(t, pal, S.colorSteps); // match
+  }
+}
+
+function pullRadius(cell, W, H) {
+  const nx = (cell.px + cell.pw/2) / W;
+  const ny = (cell.py + cell.ph/2) / H;
+  let t = 0.5;
+  switch (S.pullMorph) {
+    case 'x': t = nx; break;
+    case 'y': t = ny; break;
+    case 'radial': {
+      const dx = nx-0.5, dy = ny-0.5;
+      t = Math.min(1, Math.sqrt(dx*dx + dy*dy) * 2);
+      break;
+    }
+    case 'size': {
+      const maxA = S.maxWidth * S.rowHeight;
+      t = (cell.w * cell.h - 1) / Math.max(1, maxA - 1);
+      break;
+    }
+    default: t = 0.5;
+  }
+  const minR = (S.pullMin / 100) * cell.ph;
+  const maxR = (S.pullMax / 100) * cell.ph;
+  return (minR + (maxR - minR) * t) / 2;
+}
+
+// Signet knob ladder — 8 physical sizes, cap ⌀12.7 → 25.4mm.
+// Maps the on-screen pull morph onto the real ladder so the cabinet's
+// knob rhythm matches the preview. Clamped so a knob never crowds its
+// face (cap ≤ 60% of the face's short dimension).
+const KNOB_CAPS = [...Array(8)].map((_, i) => 12.7 + (25.4 - 12.7) * i / 7);
+function knobSize(cell, W, H, faceWmm, faceHmm) {
+  const diaMm = (2 * pullRadius(cell, W, H) / cell.ph) * faceHmm;
+  const cap = Math.min(diaMm, 0.6 * Math.min(faceWmm, faceHmm));
+  let best = 0, bd = Infinity;
+  KNOB_CAPS.forEach((c, i) => { const d = Math.abs(c - cap); if (d < bd) { bd = d; best = i; } });
+  return best + 1;   // 1..8
+}
+
+function drawPull(cx, cy, r, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  switch (S.pullShape) {
+    case 'circle':
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      break;
+    case 'square':
+      ctx.rect(cx-r, cy-r, r*2, r*2);
+      break;
+    case 'diamond':
+      ctx.moveTo(cx, cy-r);
+      ctx.lineTo(cx+r, cy);
+      ctx.lineTo(cx, cy+r);
+      ctx.lineTo(cx-r, cy);
+      ctx.closePath();
+      break;
+  }
+  ctx.fill();
+}
+
+function render() {
+  // Render-only: no flat canvas draw. Compute the drawer count for the stats
+  // line and hand off to the realistic renderer. The canvas keeps its prior
+  // realistic frame until the new one lands, so there's no flat flash.
+  const cells = buildCells(canvas.width, canvas.height);
+  const totalUnitsH = composition.reduce((s,r) => s + r.h, 0);
+  document.getElementById('stats').innerHTML =
+    `Drawers: <span>${cells.length}</span> &nbsp;·&nbsp; Grid: <span>${S.unitsWide} × ${totalUnitsH} units</span> &nbsp;·&nbsp; Seed: <span>${S.seed}</span>`;
+  // Refresh the grid hint with the ACTUAL row count (deriveUnits sets a
+  // nominal estimate before generation; the real stack may be shorter).
+  const dg = document.getElementById('derived-grid');
+  if (dg) dg.textContent = `${S.unitsWide} units wide · ${composition.length} rows`;
+  updatePreview();
+}
+
+// ── Realistic preview (Step 4) ───────────────────────────────
+// Flat = the composer's own canvas draw. Realistic = the ETCH renderer,
+// fed live from the current composition. Expensive field recompute is
+// debounced so dragging a slider stays smooth; you never leave the mode.
+// Render-only: the tool renders exclusively through the ETCH realistic
+// renderer (Flat was removed — it read as an underdeveloped wireframe).
+// Every edit routes here; the field recompute is debounced so drags stay
+// smooth, and the canvas holds the previous frame until the new one lands
+// (no flat flash).
+let etchTimer = null;
+
+function refreshRealistic() {
+  if (typeof ETCH === 'undefined') return;   // ETCH lives in a later <script>
+  ETCH.setCanvas(canvas);   // idempotent; also dodges script-load ordering
+  syncEtch();               // composition → ETCH.faces (mm, colours, knobs)
+  ETCH.render();            // draws onto studio's canvas (sets its own size)
+  // The ETCH renderer sizes the canvas itself (frame + fit), which can differ
+  // from layout()'s flat estimate. Shrink the wrap to the ACTUAL canvas so the
+  // centered container never leaves an off-side white gap.
+  const wrap = document.getElementById('wrap');
+  if (wrap) { wrap.style.width = canvas.style.width; wrap.style.height = canvas.style.height; }
+}
+function scheduleRealistic() {
+  clearTimeout(etchTimer);
+  etchTimer = setTimeout(refreshRealistic, 120);
+}
+function updatePreview() { scheduleRealistic(); }
+// Kept as a no-arg entry point for call sites that ask to "show the render"
+// (bootLoad, the Load-original button): draw immediately, not debounced.
+function setPreview() { refreshRealistic(); }
+
+// ── Layout ───────────────────────────────────────────────────
+// Actual composed height = sum of the generated row heights. genRowHeights
+// stops when the remainder drops below the smallest row, so the stack can be
+// up to one row short of the nominal S.compH. The cabinet trims to THIS, so
+// there's no dead frame margin below the last row (matches how the physical
+// piece came out ~½" under nominal).
+function composedHeightMm() {
+  return composition.length
+    ? composition.reduce((s, r) => s + (r.hmm || S.rowHeightIn), 0)
+    : S.compH;
+}
+
+function layout() {
+  const sidebar = document.querySelector('.sidebar');
+  const avW = window.innerWidth - sidebar.offsetWidth - 56;
+  const avH = window.innerHeight - 60;
+  const aspect = S.compW / composedHeightMm(); // trim to content, not nominal
+  let H = Math.min(avH, avW / aspect);
+  let W = H * aspect;
+  canvas.width = Math.round(W);
+  canvas.height = Math.round(H);
+  document.getElementById('wrap').style.cssText = `width:${canvas.width}px;height:${canvas.height}px`;
+}
+
+// ── UI wiring ────────────────────────────────────────────────
+// Layout controls regenerate the composition — which would discard an
+// imported one. Color controls call render() directly and are unaffected.
+function go() {
+  // No imported-guard/confirm: layout controls regenerate freely. The
+  // "Load original" button restores the exhibited piece on demand instead.
+  if (S.imported) {
+    S.imported = false;
+    document.getElementById('importStatus').textContent = '';
+  }
+  generate(); layout(); render();
+}
+
+// ── Import a previously exported composition ─────────────────
+// Rebuilds `composition` from the file rather than regenerating it, so a
+// chosen layout survives exactly. Palette/seeds are restored too.
+function importComposition(obj) {
+  if (!obj || !Array.isArray(obj.rows)) throw new Error('not a composition JSON');
+
+  const cab = obj.cabinet || {};
+  if (cab.width_mm)     S.compW      = cab.width_mm;
+  if (cab.height_mm)    S.compH      = cab.height_mm;
+  if (cab.unit_size_mm) S.unitSize   = cab.unit_size_mm;
+  if (cab.row_height_mm) S.rowHeightIn = cab.row_height_mm;
+  deriveUnits();
+
+  // Rebuild the layout exactly as generate() would have produced it
+  composition = obj.rows.map(row => ({
+    h:      row.height_mm / 20.32,
+    hmm:    row.height_mm,
+    widths: row.drawers.map(d => d.width_units),
+    splits: row.drawers.map(d => !!d.split),
+  }));
+  S.numRows = composition.length;
+
+  // Palette + seeds
+  if (obj.palette) {
+    const stops = [1,2,3,4,5,6].map(i => obj.palette[i] || obj.palette[String(i)]);
+    if (stops.every(Boolean)) S.activePalette = stops;
+  }
+  if (obj.shell_color) S.shellColor = obj.shell_color;
+  const meta = obj.meta || {};
+  if (meta.seed        != null) S.seed      = meta.seed;
+  if (meta.color_seed  != null) S.colorSeed = meta.colorSeed ?? meta.color_seed;
+  if (meta.color_by)            S.colorBy   = meta.color_by;
+
+  // Sync the controls that matter
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('seed', S.seed); set('colorSeed', S.colorSeed);
+  set('shellColor', S.shellColor); set('colorBy', S.colorBy);
+  set('compW', S.compW); set('compH', S.compH);
+  const cw = document.getElementById('v-cw'); if (cw) cw.textContent = S.compW;
+  const ch = document.getElementById('v-ch'); if (ch) ch.textContent = S.compH;
+
+  S.imported = true;
+  const faces = composition.reduce((n, r) =>
+    n + r.widths.length + r.splits.filter(Boolean).length, 0);
+  document.getElementById('importStatus').textContent =
+    `imported · seed ${S.seed} · ${composition.length} rows · ${faces} faces`;
+
+  renderSwatches(S.activePalette);
+  render();
+}
+
+function wire(id, key, display, fmt) {
+  const el = document.getElementById(id);
+  const vEl = document.getElementById('v-' + display);
+  el.addEventListener('input', () => {
+    S[key] = el.type === 'color' ? el.value : Number(el.value);
+    if (vEl) vEl.textContent = fmt ? fmt(S[key]) : S[key];
+    go();
+  });
+}
+
+['compW','compH'].forEach(id => {
+  const key = id, display = id === 'compW' ? 'cw' : 'ch';
+  const el = document.getElementById(id);
+  const vEl = document.getElementById('v-' + display);
+  el.addEventListener('input', () => {
+    S[key] = Number(el.value);
+    vEl.textContent = Math.round(S[key]) + ' mm';
+    layout(); go();
+  });
+});
+wire('maxWidthIn', 'maxWidthIn', 'mw', v => Math.round(v) + ' mm');
+wire('rowHeightIn', 'rowHeightIn', 'rh', v => Math.round(v * 10) / 10 + ' mm');
+document.getElementById('rowHeightMode').addEventListener('change', e => {
+  S.rowHeightMode = e.target.value;
+  go();
+});
+wire('splitChance', 'splitChance', 'split', v => Math.round(v * 100) + '%');
+document.getElementById('splitPattern').addEventListener('change', e => {
+  S.splitPattern = e.target.value;
+  go();
+});
+wire('gradAngle', 'gradAngle', 'angle', v => v + '°');
+wire('colorSteps', 'colorSteps', 'steps', v => v === 0 ? '0' : v);
+wire('gapSize', 'gapSize', 'gap', v => v + 'px');
+wire('pullMin', 'pullMin', 'pmin', v => v + '%');
+wire('pullMax', 'pullMax', 'pmax', v => v + '%');
+wire('shellColor', 'shellColor', null);
+
+document.getElementById('pullColorMode').addEventListener('change', e => {
+  S.pullColorMode = e.target.value;
+  render();
+});
+
+document.getElementById('seed').addEventListener('input', e => {
+  S.seed = Number(e.target.value);
+  go();
+});
+
+document.getElementById('btnRandom').addEventListener('click', () => {
+  S.seed = Math.floor(Math.random() * 99999);
+  document.getElementById('seed').value = S.seed;
+  go();
+});
+
+// ── Randomize ladder ( • reroll · •• reinvent · ••• new everything ) ──
+// Format (cabinet size, drawer width, row height) is ALWAYS held; Load
+// original resets to the exhibited piece. Each tier includes the ones below.
+const _pickOf = a => a[Math.floor(Math.random() * a.length)];
+function _rndSeeds(){
+  S.seed = Math.floor(Math.random() * 99999);
+  S.colorSeed = Math.floor(Math.random() * 100000);
+  const s = document.getElementById('seed'), c = document.getElementById('colorSeed');
+  if (s) s.value = S.seed; if (c) c.value = S.colorSeed;
+}
+function _rndStrategies(){
+  const set = (id, val, key) => { const el = document.getElementById(id); if (el) el.value = val; S[key] = val; };
+  set('layoutPattern', _pickOf(['random','widen-x','widen-y','diagonal','centered','edges','wave']), 'layoutPattern');
+  set('rowHeightMode', _pickOf(['random','alternate','grad-down','grad-up']), 'rowHeightMode');
+  set('splitPattern',  _pickOf(['scatter','patches','row-burst','center','edges']), 'splitPattern');
+  set('colorBy',       _pickOf(['x','y','diagonal','size','radial','clusters','multiradial','noise','sizemix','shuffle']), 'colorBy');
+  set('pullMorph',     _pickOf(['none','x','y','radial','size']), 'pullMorph');
+  const rr = (id, key, val, vid, fmt) => {
+    S[key] = val; const el = document.getElementById(id); if (el) el.value = val;
+    const v = document.getElementById(vid); if (v) v.textContent = fmt(val);
+  };
+  rr('splitChance', 'splitChance', Math.round((0.4 + Math.random()*0.6)*20)/20, 'v-split', x => Math.round(x*100)+'%');
+  rr('jitter',      'jitter',      Math.round((0.3 + Math.random()*0.7)*20)/20, 'v-jitter', x => Math.round(x*100)+'%');
+  rr('colorSteps',  'colorSteps',  3 + Math.floor(Math.random()*6),             'v-steps',  x => x);
+  const ro = document.getElementById('opts-radial'); if (ro) ro.style.display = S.colorBy === 'radial' ? 'flex' : 'none';
+}
+function _rndPalette(){
+  S.colorRotate = 0;
+  S.paletteMood = _pickOf(['any','muted','vivid']);
+  const pm = document.getElementById('paletteMood'); if (pm) pm.value = S.paletteMood;
+  S.activePalette = generatePalette();
+  S.shellColor = deriveShellColor(S.activePalette);
+  const sh = document.getElementById('shellColor'); if (sh) sh.value = S.shellColor;
+  renderSwatches(S.activePalette);
+  if (typeof showPaletteMode === 'function') showPaletteMode();
+}
+function _rndFormat(){
+  // Only •••: reshape the physical frame too (cabinet size, drawer & row scale).
+  const set = (id, key, val, vid, fmt) => {
+    S[key] = val; const el = document.getElementById(id); if (el) el.value = val;
+    const v = document.getElementById(vid); if (v) v.textContent = fmt ? fmt(val) : val;
+  };
+  const mult = n => Math.round(n * 25.4);              // slider step = 25.4mm (2 units)
+  set('compW', 'compW', mult(20 + Math.floor(Math.random()*22)), 'v-cw', Math.round); // ~508–1041
+  set('compH', 'compH', mult(28 + Math.floor(Math.random()*26)), 'v-ch', Math.round); // ~711–1346
+  set('maxWidthIn', 'maxWidthIn', _pickOf([101.6, 127]),         'v-mw', Math.round); // >min, so rows vary & fit
+  set('rowHeightIn','rowHeightIn', _pickOf([60.96, 101.6]),      'v-rh', v => v);
+}
+function randomize(tier){
+  _rndSeeds();
+  if (tier >= 2) _rndStrategies();
+  if (tier >= 3) { _rndPalette(); _rndFormat(); }   // ••• also reshapes scale
+  go();   // regenerate + render; go() clears the imported flag
+}
+['rnd1','rnd2','rnd3'].forEach((id, i) => {
+  const b = document.getElementById(id);
+  if (b) b.addEventListener('click', () => randomize(i + 1));
+});
+
+document.getElementById('layoutPattern').addEventListener('change', e => {
+  S.layoutPattern = e.target.value;
+  go();
+});
+document.getElementById('jitter').addEventListener('input', e => {
+  S.jitter = Number(e.target.value);
+  document.getElementById('v-jitter').textContent = Math.round(S.jitter * 100) + '%';
+  go();
+});
+
+document.getElementById('btnRandomLayout').addEventListener('click', () => {
+  S.seed = Math.floor(Math.random() * 99999);
+  document.getElementById('seed').value = S.seed;
+  go();
+});
+
+document.getElementById('btnImportJSON').addEventListener('click', () =>
+  document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  f.text().then(t => {
+    try { importComposition(JSON.parse(t)); }
+    catch (err) { alert('Could not import that file:\n' + err.message); }
+  });
+  e.target.value = '';   // allow re-importing the same file
+});
+
+function showPaletteMode() {
+  const el = document.getElementById('paletteMode');
+  if (!el) return;
+  const ls = S.activePalette.map(h => rgbToHsl(...hexToRgb(h))[2]);
+  const spread = Math.round(Math.max(...ls) - Math.min(...ls));
+  const rot = S.colorRotate ? ` · cycled +${S.colorRotate}` : '';
+  el.textContent = `${S.lastPaletteMode} · value spread ${spread}${rot}`;
+}
+document.getElementById('btnRecolor').addEventListener('click', () => {
+  S.colorRotate = 0;
+  S.activePalette = generatePalette();
+  S.shellColor = deriveShellColor(S.activePalette);
+  document.getElementById('shellColor').value = S.shellColor;
+  renderSwatches(S.activePalette);
+  showPaletteMode();
+  render();
+});
+document.getElementById('paletteMood').addEventListener('change', e => {
+  S.paletteMood = e.target.value;
+  document.getElementById('btnRecolor').click();
+});
+
+// Apply a pasted set of hex codes as the active 6-stop palette.
+// Any 2-6 codes; fewer than 6 are linearly blended in RGB to fill to 6.
+function applyPastedPalette() {
+  const raw = document.getElementById('pastePalette').value;
+  let hexes = (raw.match(/#?[0-9a-fA-F]{6}\b/g) || [])
+    .map(h => '#' + h.replace('#', '').toLowerCase());
+  if (hexes.length < 2) { alert('Paste at least 2 six-digit hex codes.'); return; }
+  // Sort dark → light so the gradient colour modes map consistently
+  hexes.sort((a, b) => rgbToHsl(...hexToRgb(a))[2] - rgbToHsl(...hexToRgb(b))[2]);
+  // Resample to exactly 6 stops
+  const six = [...Array(6)].map((_, i) => {
+    const t = i / 5 * (hexes.length - 1);
+    const lo = Math.floor(t), f = t - lo;
+    if (f === 0) return hexes[lo];
+    const [r1,g1,b1] = hexToRgb(hexes[lo]), [r2,g2,b2] = hexToRgb(hexes[lo + 1]);
+    const mix = (a, b) => Math.round(a + (b - a) * f);
+    return '#' + [mix(r1,r2), mix(g1,g2), mix(b1,b2)]
+      .map(v => v.toString(16).padStart(2, '0')).join('');
+  });
+  S.activePalette = sanitizeStops(six);   // still no pure white
+  S.colorRotate = 0;
+  S.shellColor = deriveShellColor(S.activePalette);
+  S.lastPaletteMode = 'pasted';
+  document.getElementById('shellColor').value = S.shellColor;
+  renderSwatches(S.activePalette);
+  showPaletteMode();
+  render();
+}
+document.getElementById('btnApplyPaste').addEventListener('click', applyPastedPalette);
+
+// Cycle colors — rotate the palette one step so every face takes the
+// next colour along (2→1, 3→2, … 1→6). Layout, seeds, and knob sizes
+// are untouched; 6 clicks returns to the starting assignment. Both the
+// render and the export read S.activePalette, so screen and manifest
+// stay in lockstep.
+document.getElementById('btnCycle').addEventListener('click', () => {
+  if (S.activePalette.length < 2) return;
+  S.colorRotate = (S.colorRotate + 1) % S.activePalette.length;
+  showPaletteMode();
+  render();   // legend (swatch bar) stays fixed; only assignments cycle
+});
+document.getElementById('colorSeed').addEventListener('input', e => {
+  S.colorSeed = Number(e.target.value) || 0;
+  render();
+});
+document.getElementById('btnColorSeed').addEventListener('click', () => {
+  S.colorSeed = Math.floor(Math.random() * 100000);
+  document.getElementById('colorSeed').value = S.colorSeed;
+  render();
+});
+
+document.getElementById('colorBy').addEventListener('change', e => {
+  S.colorBy = e.target.value;
+  document.getElementById('opts-radial').style.display = e.target.value === 'radial' ? 'flex' : 'none';
+  render();
+});
+
+// ── Radial controls ──────────────────────────────────────────
+function setRadialCenter(x, y) {
+  S.radialX = x; S.radialY = y;
+  document.getElementById('radialX').value = Math.round(x * 100);
+  document.getElementById('radialY').value = Math.round(y * 100);
+  document.getElementById('v-rx').textContent = Math.round(x * 100) + '%';
+  document.getElementById('v-ry').textContent = Math.round(y * 100) + '%';
+  render();
+}
+
+// Build 3×3 preset grid
+const PRESETS = [
+  [0,0,'↖'],[0.5,0,'↑'],[1,0,'↗'],
+  [0,0.5,'←'],[0.5,0.5,'·'],[1,0.5,'→'],
+  [0,1,'↙'],[0.5,1,'↓'],[1,1,'↘'],
+];
+const grid = document.getElementById('radialGrid');
+PRESETS.forEach(([x, y, label]) => {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.style.cssText = 'padding:4px;font-size:13px;text-align:center;';
+  b.addEventListener('click', () => setRadialCenter(x, y));
+  grid.appendChild(b);
+});
+
+document.getElementById('radialX').addEventListener('input', e => {
+  S.radialX = Number(e.target.value) / 100;
+  document.getElementById('v-rx').textContent = e.target.value + '%';
+  render();
+});
+document.getElementById('radialY').addEventListener('input', e => {
+  S.radialY = Number(e.target.value) / 100;
+  document.getElementById('v-ry').textContent = e.target.value + '%';
+  render();
+});
+document.getElementById('radialScale').addEventListener('input', e => {
+  S.radialScale = Number(e.target.value);
+  document.getElementById('v-rscale').textContent = S.radialScale.toFixed(1);
+  render();
+});
+document.getElementById('pullMorph').addEventListener('change', e => {
+  S.pullMorph = e.target.value;
+  render();
+});
+
+// Color mode toggle
+document.getElementById('btn-gradient').addEventListener('click', () => {
+  S.colorMode = 'gradient';
+  document.getElementById('btn-gradient').classList.add('active');
+  document.getElementById('btn-grid').classList.remove('active');
+  document.getElementById('opts-gradient').style.display = '';
+  document.getElementById('opts-grid').style.display = 'none';
+  render();
+});
+document.getElementById('btn-grid').addEventListener('click', () => {
+  S.colorMode = 'grid';
+  document.getElementById('btn-grid').classList.add('active');
+  document.getElementById('btn-gradient').classList.remove('active');
+  document.getElementById('opts-gradient').style.display = 'none';
+  document.getElementById('opts-grid').style.display = '';
+  render();
+});
+
+window.addEventListener('resize', () => { layout(); render(); });
+
+// ── JSON Export ─────────────────────────────────────────────
+// Build the composition JSON object (same schema the pipeline consumes).
+// Extracted so BOTH the export button and the live ETCH preview feed
+// from one source of truth.
+function buildCompositionData() {
+  // Nearest palette stop (1-based) for a rendered hex — the "paint number"
+  const nearestStop = hex => {
+    const c = hexToRgb(hex);
+    let best = 0, bd = Infinity;
+    S.activePalette.forEach((p, i) => {
+      const q = hexToRgb(p);
+      const d = (c[0]-q[0])**2 + (c[1]-q[1])**2 + (c[2]-q[2])**2;
+      if (d < bd) { bd = d; best = i; }
+    });
+    return best + 1;
+  };
+
+  const cells = buildCells(canvas.width, canvas.height);
+  let k = 0;
+  // reveal per side — face is inset this much from the shell opening
+  const REV = 1.2;
+  const specOf = (cell, faceWmm, faceHmm) => {
+    const faceHex = cellColor(cell, canvas.width, canvas.height);
+    const pullHex = pullColor(cell, canvas.width, canvas.height);
+    return {
+      face_color: nearestStop(faceHex), face_hex: faceHex,
+      pull_color: nearestStop(pullHex), pull_hex: pullHex,
+      pull_size: knobSize(cell, canvas.width, canvas.height, faceWmm, faceHmm)
+    };
+  };
+  const rows = composition.map(row => {
+    const rowH = row.hmm ?? S.rowHeightIn;
+    return {
+    height_mm: Math.round(rowH * 100) / 100,
+    drawers: row.widths.map((w, i) => {
+      const wmm = Math.round(w * S.unitSize * 10) / 10;
+      const base = {
+        width_units: w,
+        width_mm: wmm,
+        width_in: Math.round(w * S.unitSize / 25.4 * 4) / 4
+      };
+      if (row.splits && row.splits[i]) {
+        // Split slot: two stacked half-height minis, top listed first
+        const miniH = Math.round(rowH / 2 * 100) / 100;
+        const top = specOf(cells[k++], wmm - 2*REV, miniH - 2*REV);
+        const bottom = specOf(cells[k++], wmm - 2*REV, miniH - 2*REV);
+        return { ...base, split: true, mini_height_mm: miniH, top, bottom };
+      }
+      return { ...base, ...specOf(cells[k++], wmm - 2*REV, rowH - 2*REV) };
+    })
+  };});
+
+  const uniqueWidths  = [...new Set(composition.flatMap(r => r.widths))].sort((a,b)=>a-b);
+  const uniqueHeights = [...new Set(rows.map(r => r.height_mm))].sort((a,b)=>a-b);
+
+  const out = {
+    meta: { generator: 'cabinet-visualizer', seed: S.seed,
+            color_seed: S.colorSeed, color_by: S.colorBy,
+            pattern: S.layoutPattern },
+    // Paint key: color 1..6 → hex. Faces & knobs reference these numbers.
+    palette: Object.fromEntries(S.activePalette.map((hex, i) => [i + 1, hex])),
+    shell_color: S.shellColor,
+    cabinet: {
+      width_mm: Math.round(S.compW),
+      height_mm: Math.round(composedHeightMm()),
+      depth_mm: 63.5,
+      unit_size_mm: S.unitSize,
+      row_height_mm: Math.round(S.rowHeightIn * 100) / 100,
+    },
+    scad_params: {
+      unit_size_mm: S.unitSize,
+      row_height_mm: Math.round(S.rowHeightIn * 100) / 100,
+      depth_mm: 63.5,
+      wall_mm: 2.4,
+      clearance_mm: 0.35,
+      pull_hole_dia: 4.2,
+      screwdriver_hole_dia: 7.0,
+      unique_drawer_widths_units: uniqueWidths,
+      unique_drawer_widths_mm: uniqueWidths.map(w => Math.round(w * S.unitSize * 10) / 10),
+      unique_row_heights_mm: uniqueHeights,
+    },
+    rows
+  };
+  return out;
+}
+
+document.getElementById('btnExportJSON').addEventListener('click', () => {
+  const out = buildCompositionData();
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cabinet-seed${S.seed}.json`;
+  a.click();
+
+  // Companion PNG of the composition — visual reference for the manifest
+  canvas.toBlob(pngBlob => {
+    const b = document.createElement('a');
+    b.href = URL.createObjectURL(pngBlob);
+    b.download = `cabinet-seed${S.seed}.png`;
+    b.click();
+  }, 'image/png');
+});
+
+// ── Adapter (Step 3): feed the live composition into the ETCH renderer.
+// buildCompositionData() → ETCH.loadJSON() reuses the lab's proven
+// mm-space face builder, so no coordinate math is reinvented here.
+function syncEtch() {
+  ETCH.loadJSON(buildCompositionData());
+  return ETCH.faces.length;
+}
+
+// ── Init ────────────────────────────────────────────────────
+layout();
+renderSwatches(S.activePalette);
+go();
+
+// Boot on the EXACT production composition (187 drawers) instead of a
+// regenerated approximation: the generator reproduces the row skeleton
+// (heights + widths) but no longer matches the original split/duplex
+// pattern byte-for-byte, so a fresh generate yields ~141 drawers. Loading
+// the archived JSON via the existing import path restores the real piece.
+// Falls back to the generated layout if the file can't be fetched
+// (e.g. opened as a bare file:// URL with no server).
+let _originalComp = null;   // cached after first fetch → later clicks are instant
+async function bootLoad(){
+  try {
+    if (!_originalComp) {
+      // Prefer the EMBEDDED composition (works on file:// too, where fetch of
+      // a sibling file is blocked). Fetch is only a fallback.
+      _originalComp = window.MEMORY_PALACE_COMP || null;
+      if (!_originalComp) {
+        const r = await fetch('cabinet-seed23408.json');
+        if (r.ok) _originalComp = await r.json();
+      }
+    }
+    if (_originalComp) {
+      importComposition(_originalComp);
+      // Also reset the strategy controls so the PANEL matches the restored
+      // piece (otherwise a prior ••• leaves the dropdowns showing random
+      // values and Load original looks like it did nothing).
+      const setC = (id, val, key, vid, fmt) => {
+        const el = document.getElementById(id); if (el) el.value = val; if (key) S[key] = val;
+        if (vid) { const v = document.getElementById(vid); if (v) v.textContent = fmt ? fmt(val) : val; }
+      };
+      setC('rowHeightMode', 'random', 'rowHeightMode');
+      setC('splitPattern',  'center', 'splitPattern');
+      setC('layoutPattern', 'random', 'layoutPattern');
+      setC('pullMorph',     'radial', 'pullMorph');
+      setC('paletteMood',   'muted',  'paletteMood');
+      setC('splitChance', 1, 'splitChance', 'v-split',  x => Math.round(x*100)+'%');
+      setC('jitter',      1, 'jitter',      'v-jitter', x => Math.round(x*100)+'%');
+      setC('colorSteps',  6, 'colorSteps',  'v-steps',  x => x);
+      layout(); render();
+    }
+  } catch (e) { /* keep the generated fallback */ }
+  if (typeof setPreview === 'function') setPreview();
+}
+const _loBtn = document.getElementById('btnLoadOriginal');
+if (_loBtn) _loBtn.addEventListener('click', bootLoad);
+bootLoad();
+</script>
+
+<!-- ===== ETCH renderer (grafted from etch-lab.html, Step 2) =====
+     DORMANT: wrapped in a namespace, nothing calls it yet. Its own
+     state (S, faces, DATA…) lives inside the IIFE so it cannot collide
+     with the composer's globals. Step 3 wires an adapter; Step 4 a
+     Flat/Realistic switch. Until then studio.html behaves identically. -->
+<script>
+const ETCH = (function(){
+// ── EXACT same noise as visualizer + pipeline ──
+function hash01(a,b,c){ const h=Math.sin(a*127.1+b*311.7+c*74.7)*43758.5453; return h-Math.floor(h); }
+function vnoise(nx,ny,f,seed){
+  const x=nx*f,y=ny*f, ix=Math.floor(x),iy=Math.floor(y);
+  const fx=x-ix,fy=y-iy, sx=fx*fx*(3-2*fx), sy=fy*fy*(3-2*fy);
+  const v00=hash01(ix,iy,seed),v10=hash01(ix+1,iy,seed);
+  const v01=hash01(ix,iy+1,seed),v11=hash01(ix+1,iy+1,seed);
+  return (v00*(1-sx)+v10*sx)*(1-sy)+(v01*(1-sx)+v11*sx)*sy;
+}
+
+const S = {
+  fill:'grain', colors:true, etchDark:30, showKnobs:true, realistic:true,
+  relief:100, hi:55, sh:60, sheen:35, reveal:1.2, frame:12,
+  gsmin:3.0, gsmax:9.5, gwob:0.5, gfreq:6.0,
+  tlev:17, fsep:2.5, flen:80,
+};
+let DATA=null, faces=[], cabW=762, cabH=1016, colorSeed=1234;
+let HOST_CV=null;   // studio sets this so render() draws to its canvas
+// `faces` holds TRUE geometry (1.2mm reveal) — the SVG export always uses
+// it, so the laser file can never drift. `dfaces` is the display copy,
+// grown or shrunk by the Reveal slider for looks only.
+let dfaces=[];
+
+function field(X,Y){ return vnoise(X/cabW, Y/cabH, 3.2, colorSeed); }
+
+// Etch colour = the face's own colour, scaled darker in value. Keeps
+// hue & saturation, drops lightness proportionally: 0% = same colour
+// (invisible), 100% = black. Matches a score-line reading as shadow
+// under monochrome paint.
+function rgbOf(hex){
+  const h=(hex||'#888888').replace('#','');
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+}
+const hex2=v=>Math.round(Math.min(255,Math.max(0,v))).toString(16).padStart(2,'0');
+
+function darken(hex, pct){
+  const [r,g,b]=rgbOf(hex);
+  const k=1-Math.min(100,Math.max(0,pct))/100;
+  return '#'+hex2(r*k)+hex2(g*k)+hex2(b*k);
+}
+// Toward white — the lit side of a form under top-left light.
+function lighten(hex, pct){
+  const [r,g,b]=rgbOf(hex);
+  const k=Math.min(100,Math.max(0,pct))/100;
+  return '#'+hex2(r+(255-r)*k)+hex2(g+(255-g)*k)+hex2(b+(255-b)*k);
+}
+
+// ── One lighting model, three dials ───────────────────────────
+// Every lit surface goes through LIT(), every shaded one through DIM(),
+// so the Highlight / Shadow sliders move the whole scene together
+// instead of each element having its own baked-in strength.
+const LIT=(col,amt)=>lighten(col, amt*S.hi/100);
+const DIM=(col,amt)=>darken (col, amt*S.sh/100);
+const SHA=a=>`rgba(0,0,0,${(a*S.sh/100).toFixed(3)})`;   // cast-shadow alpha
+
+// Normalized field for GRAIN density only. Raw noise never spans a full
+// 0..1 over the cabinet (e.g. 0.04..0.90), so raw values would make
+// grain min/max spacing unreachable. Terrain keeps the RAW field so its
+// isolines stay aligned with the composer's color bands.
+let fLo=0, fSpan=1;
+function calibrateField(){
+  let lo=1, hi=0;
+  for(let j=0;j<256;j++) for(let i=0;i<256;i++){
+    const v=vnoise(i/255, j/255, 3.2, colorSeed);
+    if(v<lo) lo=v; if(v>hi) hi=v;
+  }
+  fLo=lo; fSpan=Math.max(1e-6, hi-lo);
+}
+function grainT(X,Y){ return Math.min(1,Math.max(0,(field(X,Y)-fLo)/fSpan)); }
+
+function loadJSON(obj){
+  DATA=obj;
+  cabW=obj.cabinet?.width_mm||762; cabH=obj.cabinet?.height_mm||1016;
+  colorSeed=obj.meta?.color_seed||1234;
+  calibrateField();
+  const reveal=1.2; faces=[]; let y=0;
+  obj.rows.forEach((row,ri)=>{
+    const h=row.height_mm; let x=0;
+    row.drawers.forEach((d,ci)=>{
+      const fw=d.width_mm-2*reveal, id=`R${ri+1}C${ci+1}`;
+      // pull colour: prefer the exported hex, else look up the paint number
+      const phex=part=>part.pull_hex || (obj.palette && obj.palette[part.pull_color]) || null;
+      if(d.split){
+        const mh=d.mini_height_mm||h/2, fh=mh-2*reveal;
+        faces.push({x:x+reveal,y:y+reveal,w:fw,h:fh,hex:d.top.face_hex,id:id+'T',fc:d.top.face_color,
+                    phex:phex(d.top),ps:d.top.pull_size,pc:d.top.pull_color});
+        faces.push({x:x+reveal,y:y+mh+reveal,w:fw,h:fh,hex:d.bottom.face_hex,id:id+'B',fc:d.bottom.face_color,
+                    phex:phex(d.bottom),ps:d.bottom.pull_size,pc:d.bottom.pull_color});
+      } else {
+        faces.push({x:x+reveal,y:y+reveal,w:fw,h:h-2*reveal,hex:d.face_hex,id:id,fc:d.face_color,
+                    phex:phex(d),ps:d.pull_size,pc:d.pull_color});
+      }
+      x+=d.width_mm;
+    });
+    y+=h;
+  });
+  const _el = document.getElementById('loaded');   // absent in studio — guard it
+  if (_el) _el.textContent =
+    `seed ${obj.meta?.seed} · color ${colorSeed} · ${faces.length} faces`;
+  // No auto-render: in studio the host decides when to draw (Step 4).
+}
+
+// ── Fills (mirror generate_shells.py) ──
+function genGrain(){
+  const smin=S.gsmin, smax=S.gsmax, wob=S.gwob, freq=S.gfreq;
+  const cell=smin, hashPts=new Map();
+  const key=(i,j)=>i+':'+j;
+  // NORMALIZED field so smin/smax are actually reached
+  const sep=(px,py)=>smin+(smax-smin)*grainT(px,py);
+  function free(px,py,f=0.88){
+    const s=sep(px,py)*f, r=Math.floor(s/cell)+1;
+    const ci=Math.floor(px/cell), cj=Math.floor(py/cell);
+    for(let jj=cj-r;jj<=cj+r;jj++) for(let ii=ci-r;ii<=ci+r;ii++){
+      const b=hashPts.get(key(ii,jj)); if(!b) continue;
+      for(const [qx,qy] of b) if((px-qx)**2+(py-qy)**2 < s*s) return false;
+    }
+    return true;
+  }
+  const wander=(px,py)=>(vnoise(px/cabW,py/cabH,freq,colorSeed+7)-0.5)*2*wob;
+  function trace(sx,sy,sign){
+    const pts=[]; let px=sx,py=sy;
+    while(true){
+      const dx=wander(px,py), m=Math.hypot(dx,1);
+      px+=sign*dx/m; py+=sign*1/m;
+      if(px<0||px>cabW||py<0||py>cabH) break;
+      if(!free(px,py)) break;
+      pts.push([px,py]);
+    }
+    return pts;
+  }
+  const lines=[];
+  function add(sx,sy){
+    if(sx<0||sx>cabW||sy<0||sy>cabH) return null;
+    if(!free(sx,sy,1.0)) return null;
+    const up=trace(sx,sy,-1), down=trace(sx,sy,1);
+    const line=up.reverse().concat([[sx,sy]],down);
+    if(line.length<8) return null;
+    lines.push(line);
+    for(const [px,py] of line){
+      const k=key(Math.floor(px/cell),Math.floor(py/cell));
+      if(!hashPts.has(k)) hashPts.set(k,[]);
+      hashPts.get(k).push([px,py]);
+    }
+    return line;
+  }
+  // Evenly-spaced streamlines (Jobard & Lefer): each accepted line offers
+  // candidate seeds perpendicular to itself at exactly the local target
+  // spacing, so dark zones actually pack to smin.
+  const queue=[];
+  for(let i=0;i<cabW/smin;i++){ const l=add((i+0.5)*smin,0); if(l) queue.push(l); }
+  for(let qi=0;qi<queue.length;qi++){
+    const line=queue[qi];
+    for(let k=0;k<line.length;k+=3){
+      const [px,py]=line[k];
+      const dx=wander(px,py), m=Math.hypot(dx,1);
+      const nx=-1/m, ny=dx/m, s=sep(px,py);
+      for(const side of [1,-1]){
+        const l=add(px+nx*s*side, py+ny*s*side);
+        if(l) queue.push(l);
+      }
+    }
+  }
+  return lines;
+}
+
+function genFlow(){
+  const sepv=S.fsep, step=1.0, maxlen=S.flen;
+  const occ=new Set(), key=(px,py)=>Math.floor(px/sepv)+':'+Math.floor(py/sepv);
+  const grad=(px,py)=>{
+    const h=0.5;
+    return [(field(px+h,py)-field(px-h,py))/(2*h),(field(px,py+h)-field(px,py-h))/(2*h)];
+  };
+  function trace(sx,sy,sign){
+    const pts=[[sx,sy]]; let px=sx,py=sy;
+    for(let k=0;k<maxlen/step;k++){
+      const [gx,gy]=grad(px,py), m=Math.hypot(gx,gy);
+      if(m<1e-5) break;
+      px+=sign*gx/m*step; py+=sign*gy/m*step;
+      if(px<0||px>cabW||py<0||py>cabH) break;
+      if(occ.has(key(px,py))) break;
+      pts.push([px,py]);
+    }
+    return pts;
+  }
+  const lines=[], s=6;
+  for(let j=0;j<cabH/s;j++) for(let i=0;i<cabW/s;i++){
+    const sx=(i+hash01(i,j,colorSeed))*s, sy=(j+hash01(j,i,colorSeed+1))*s;
+    if(sx<0||sx>cabW||sy<0||sy>cabH) continue;
+    if(occ.has(key(sx,sy))) continue;
+    const fwd=trace(sx,sy,-1), bwd=trace(sx,sy,1);
+    const line=bwd.slice(1).reverse().concat(fwd);
+    if(line.length<6) continue;
+    lines.push(line);
+    for(const [px,py] of line) occ.add(key(px,py));
+  }
+  return lines;
+}
+
+function clipToFace(lines,f){
+  const out=[];
+  for(const line of lines){
+    let run=[];
+    for(const [px,py] of line){
+      if(px>=f.x&&px<=f.x+f.w&&py>=f.y&&py<=f.y+f.h) run.push([px,py]);
+      else { if(run.length>2) out.push(run); run=[]; }
+    }
+    if(run.length>2) out.push(run);
+  }
+  return out;
+}
+
+// terrain: marching squares per face
+function terrainSegs(f,levels){
+  const res=1.2, nx=Math.max(2,Math.floor(f.w/res)+1), ny=Math.max(2,Math.floor(f.h/res)+1);
+  const xs=[...Array(nx)].map((_,i)=>f.x+i*f.w/(nx-1));
+  const ys=[...Array(ny)].map((_,j)=>f.y+j*f.h/(ny-1));
+  const V=ys.map(y=>xs.map(x=>field(x,y)));
+  const T={1:[[3,0]],2:[[0,1]],3:[[3,1]],4:[[1,2]],5:[[3,0],[1,2]],6:[[0,2]],7:[[3,2]],
+           8:[[2,3]],9:[[0,2]],10:[[0,1],[2,3]],11:[[1,2]],12:[[1,3]],13:[[0,1]],14:[[3,0]]};
+  const segs=[];
+  for(let j=0;j<ny-1;j++) for(let i=0;i<nx-1;i++){
+    const c=[V[j][i],V[j][i+1],V[j+1][i+1],V[j+1][i]];
+    const x0=xs[i],x1=xs[i+1],y0=ys[j],y1=ys[j+1];
+    for(const lv of levels){
+      const b=(c[0]>lv?1:0)|(c[1]>lv?2:0)|(c[2]>lv?4:0)|(c[3]>lv?8:0);
+      if(b===0||b===15) continue;
+      const L=(pa,pb,va,vb)=>{const t=vb!==va?(lv-va)/(vb-va):0.5;
+        return [pa[0]+(pb[0]-pa[0])*t, pa[1]+(pb[1]-pa[1])*t];};
+      const e={0:L([x0,y0],[x1,y0],c[0],c[1]),1:L([x1,y0],[x1,y1],c[1],c[2]),
+               2:L([x0,y1],[x1,y1],c[3],c[2]),3:L([x0,y0],[x0,y1],c[0],c[3])};
+      for(const [ea,eb] of T[b]) segs.push([e[ea],e[eb]]);
+    }
+  }
+  return segs;
+}
+
+// ── Render ──
+let cachedLines=null, cacheKey='';
+function render(){
+  if(!DATA) return;
+  // Display-only face rects. Positive `grow` shrinks the visible reveal;
+  // `faces` itself is untouched so the SVG export keeps true geometry.
+  const grow = 1.2 - S.reveal;
+  dfaces = grow === 0 ? faces : faces.map(f => ({
+    ...f, x:f.x-grow, y:f.y-grow, w:f.w+2*grow, h:f.h+2*grow }));
+
+  // ── Floated, raised frame ───────────────────────────────────
+  // A slim raised frame band (shell colour) → a GENEROUS recessed reveal
+  // channel → the drawer field on a DARK grout. Channel + grout are deep
+  // shadow (split from the frame colour) so the drawers pop and the frame
+  // floats proud. Light from top-left, matching the tiles and knobs.
+  const frameHex = DATA.shell_color || '#655b97';
+  const darkHex  = darken(frameHex, 66);        // grout + channel: deep shadow
+  const frameW = Math.max(3, S.frame * 0.55);   // slim raised band
+  const chW    = Math.max(4, S.frame * 0.48);   // narrow float reveal
+  const F = frameW + chW, totW=cabW+2*F, totH=cabH+2*F;
+  const cv=HOST_CV||document.getElementById('cv');
+  // Fit to BOTH axes so wide cabinets (>~800mm) don't clip off the pane.
+  const _sb=document.querySelector('.sidebar');
+  const _avW=window.innerWidth-(_sb?_sb.offsetWidth:320)-56;
+  const px=Math.min(1.1,(innerHeight-60)/totH,_avW/totW);
+  cv.width=totW*px*2; cv.height=totH*px*2;
+  cv.style.width=totW*px+'px'; cv.style.height=totH*px+'px';
+  const g=cv.getContext('2d'); g.scale(2*px,2*px);
+  // 1) frame band fills everything; the recess is painted back on top
+  g.fillStyle=frameHex; g.fillRect(0,0,totW,totH);
+  // 2) recessed dark: the reveal channel + the field grout, one deep shadow
+  g.fillStyle=darkHex; g.fillRect(frameW,frameW,totW-2*frameW,totH-2*frameW);
+  // 3) frame bevel — lit inner top+left edge, shadowed inner bottom+right
+  g.lineJoin='round';
+  g.lineWidth=Math.max(0.5,frameW*0.20);
+  g.strokeStyle=lighten(frameHex,26);
+  g.beginPath(); g.moveTo(frameW,totH-frameW); g.lineTo(frameW,frameW); g.lineTo(totW-frameW,frameW); g.stroke();
+  g.strokeStyle=darken(frameHex,42);
+  g.beginPath(); g.moveTo(totW-frameW,frameW); g.lineTo(totW-frameW,totH-frameW); g.lineTo(frameW,totH-frameW); g.stroke();
+  // 4) frame casts a soft shadow INTO the channel (top & left = proud read)
+  const sh=Math.min(chW*0.9, 6);
+  let gr=g.createLinearGradient(0,frameW,0,frameW+sh);
+  gr.addColorStop(0,'rgba(0,0,0,0.40)'); gr.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=gr; g.fillRect(frameW,frameW,totW-2*frameW,sh);
+  gr=g.createLinearGradient(frameW,0,frameW+sh,0);
+  gr.addColorStop(0,'rgba(0,0,0,0.32)'); gr.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=gr; g.fillRect(frameW,frameW,sh,totH-2*frameW);
+  g.translate(F,F);   // everything below draws in cabinet coordinates
+  drawFaceShadows(g);                    // into the reveals, before the faces
+  drawFaces(g);
+  if(S.fill==='none'){ drawFaceEdges(g); drawKnobs(g); readout(); return; }
+  // regenerate global lines only when params change
+  const k=JSON.stringify([S.fill,S.gsmin,S.gsmax,S.gwob,S.gfreq,S.fsep,S.flen,colorSeed]);
+  if(k!==cacheKey){
+    cachedLines = S.fill==='grain'?genGrain() : S.fill==='flow'?genFlow() : null;
+    cacheKey=k;
+  }
+  // ── Etch ──────────────────────────────────────────────────
+  // Flat mode: one stroke, a darker value of the face (honest for tuning).
+  // Realistic: the score is a V-groove with two walls, so it's drawn as a
+  // PAIR — a lit stroke offset up-left, a shadow stroke offset down-right.
+  // That's the same top-left light as the knobs and tile edges, and it's
+  // what makes the grain read as cut INTO the surface rather than drawn on.
+  g.lineWidth=0.35; g.lineJoin='round';
+  const levels = S.fill==='terrain'
+    ? [...Array(S.tlev)].map((_,i)=>(i+1)/(S.tlev+1)) : null;
+  const carve=0.16;   // half-width of the groove, mm
+  for(const f of dfaces){
+    const p=new Path2D();
+    if(S.fill==='terrain'){
+      for(const [a,b] of terrainSegs(f,levels)){ p.moveTo(a[0],a[1]); p.lineTo(b[0],b[1]); }
+    } else {
+      for(const run of clipToFace(cachedLines,f)){
+        p.moveTo(run[0][0],run[0][1]);
+        for(let i=1;i<run.length;i++) p.lineTo(run[i][0],run[i][1]);
+      }
+    }
+    const col=faceCol(f);
+    if(S.realistic){
+      g.save(); g.translate(-carve,-carve);
+      g.strokeStyle=LIT(col, Math.max(6, S.etchDark*0.55));
+      g.stroke(p); g.restore();
+      g.save(); g.translate(carve,carve);
+      g.strokeStyle=darken(col, S.etchDark);
+      g.stroke(p); g.restore();
+    } else {
+      g.strokeStyle=darken(col, S.etchDark);
+      g.stroke(p);
+    }
+  }
+  drawFaceEdges(g);   // after the etch, so each tile keeps a crisp frame
+  drawKnobs(g);
+  readout();
+}
+
+// Signet knob ladder — 8 sizes, cap ⌀12.7 → 25.4mm (pull-v1.scad).
+function knobDia(f){
+  const dia = f.ps ? 12.7 + (25.4-12.7)*(Math.min(8,Math.max(1,f.ps))-1)/7
+                   : 0.42*Math.min(f.w,f.h);          // fallback if no size
+  return Math.min(dia, 0.72*Math.min(f.w,f.h));       // never overflow the face
+}
+// Total knob length, 16.1 → 19.05mm. Bigger caps stand further proud,
+// so they cast longer shadows — the radial pull-morph reads physically.
+function knobLen(f){
+  return f.ps ? 16.1 + (19.05-16.1)*(Math.min(8,Math.max(1,f.ps))-1)/7 : 17;
+}
+
+// Drawer knobs — preview only (they're 3D-printed, NOT on the laser
+// sheet, so drawKnobs is deliberately absent from buildSVG).
+// LIGHT COMES FROM THE TOP-LEFT. Everything here obeys that:
+//   cap is a bump  → lit on the upper-left rim, dark on the lower-right
+//   groove is a cut→ the SAME arcs invert (near wall shaded, far wall lit)
+//   cast shadow    → falls down-right, length scaled by knob protrusion
+const TAU=Math.PI*2;
+const ARC_LIT=[Math.PI*0.85, Math.PI*1.65];   // upper-left
+const ARC_DIM=[Math.PI*-0.15, Math.PI*0.65];  // lower-right
+
+// ── Drawer faces as raised tiles ──────────────────────────────
+// Each face is a plate standing proud of the shell, separated from its
+// neighbours by a 2.4mm reveal. Same top-left light as the knobs:
+//   cast shadow  → into the gap below and right of every face
+//   lit bevel    → top + left edges
+//   shaded bevel → bottom + right edges
+// Every gap therefore gets shadow from the face above/left of it, which
+// is what turns the field from flat rectangles into stacked objects.
+function faceCol(f){ return S.colors?(f.hex||'#888'):'#c9c2b4'; }
+
+// Sprayed paint on a flat plate: the surface catches light near the top
+// and falls off toward the bottom. Subtle — this should read as sheen,
+// not as a gradient fill.
+function drawFaces(g){
+  const s = S.realistic ? S.sheen/100 : 0;
+  for(const f of dfaces){
+    const col=faceCol(f);
+    if(s<=0){
+      g.fillStyle=col;
+    } else {
+      const lg=g.createLinearGradient(f.x, f.y, f.x+f.w*0.30, f.y+f.h);
+      lg.addColorStop(0,    lighten(col, 13*s));
+      lg.addColorStop(0.55, col);
+      lg.addColorStop(1,    darken (col,  9*s));
+      g.fillStyle=lg;
+    }
+    g.fillRect(f.x,f.y,f.w,f.h);
+  }
+}
+
+function drawFaceShadows(g){
+  if(!S.realistic) return;
+  const k=S.relief/100;
+  if(k<=0) return;
+  // Layered offsets fake a soft blur without canvas shadowBlur (which
+  // doesn't scale with the transform).
+  const steps=[[0.45,0.20],[1.00,0.13],[1.70,0.07]];
+  for(const f of dfaces){
+    for(const [off,a] of steps){
+      g.fillStyle=SHA(a);            // Shadow slider governs darkness
+      g.fillRect(f.x+off*k, f.y+off*k, f.w, f.h);   // Relief governs reach
+    }
+  }
+}
+
+function drawFaceEdges(g){
+  if(!S.realistic) return;
+  const bw=0.55;
+  g.lineWidth=bw; g.lineCap='butt';
+  for(const f of dfaces){
+    const col=faceCol(f);
+    // lit: left edge up, then along the top
+    g.strokeStyle=LIT(col,34);
+    g.beginPath();
+    g.moveTo(f.x+bw/2, f.y+f.h);
+    g.lineTo(f.x+bw/2, f.y+bw/2);
+    g.lineTo(f.x+f.w,  f.y+bw/2);
+    g.stroke();
+    // shaded: right edge down, then back along the bottom
+    g.strokeStyle=DIM(col,30);
+    g.beginPath();
+    g.moveTo(f.x+f.w-bw/2, f.y);
+    g.lineTo(f.x+f.w-bw/2, f.y+f.h-bw/2);
+    g.lineTo(f.x,          f.y+f.h-bw/2);
+    g.stroke();
+  }
+}
+
+function drawKnobs(g){
+  if(!S.showKnobs) return;
+  for(const f of dfaces){
+    const cx=f.x+f.w/2, cy=f.y+f.h/2, r=knobDia(f)/2;
+    if(r<1) continue;
+    const col=f.phex || '#9a9a9a';
+
+    if(!S.realistic){                       // flat: honest, diagnostic
+      g.fillStyle=col;
+      g.beginPath(); g.arc(cx,cy,r,0,TAU); g.fill();
+      g.lineWidth=0.4; g.strokeStyle=darken(col,32);
+      g.beginPath(); g.arc(cx,cy,r,0,TAU); g.stroke();
+      if(r>2.4){
+        g.lineWidth=0.5; g.strokeStyle=darken(col,20);
+        g.beginPath(); g.arc(cx,cy,r-1.6,0,TAU); g.stroke();
+      }
+      continue;
+    }
+
+    // ── cast shadow — soft blob, offset down-right ──
+    // Drawn manually (not shadowBlur) so it scales correctly with the
+    // canvas transform instead of being fixed in device pixels.
+    const off=knobLen(f)*0.20*(S.relief/100), sr=r*1.30;
+    const sg=g.createRadialGradient(cx+off,cy+off,r*0.45,cx+off,cy+off,sr);
+    sg.addColorStop(0,  SHA(0.42));
+    sg.addColorStop(0.6,SHA(0.20));
+    sg.addColorStop(1,  'rgba(0,0,0,0)');
+    g.fillStyle=sg;
+    g.beginPath(); g.arc(cx+off,cy+off,sr,0,TAU); g.fill();
+
+    // ── cap face — gradient from the top-left ──
+    const cg=g.createRadialGradient(cx-r*0.45,cy-r*0.45,r*0.08,cx,cy,r*1.15);
+    cg.addColorStop(0,   LIT(col,26));
+    cg.addColorStop(0.55,col);
+    cg.addColorStop(1,   DIM(col,20));
+    g.fillStyle=cg;
+    g.beginPath(); g.arc(cx,cy,r,0,TAU); g.fill();
+
+    // ── rim: the cylinder edge. This sells "disc" more than the fill ──
+    const lw=Math.max(0.32, r*0.10);
+    g.lineWidth=lw;
+    g.strokeStyle=LIT(col,45);
+    g.beginPath(); g.arc(cx,cy,r-lw/2,ARC_LIT[0],ARC_LIT[1]); g.stroke();
+    g.strokeStyle=DIM(col,46);
+    g.beginPath(); g.arc(cx,cy,r-lw/2,ARC_DIM[0],ARC_DIM[1]); g.stroke();
+
+    // ── groove ring: a CUT, so the shading flips ──
+    if(r>2.4){
+      const gr=r-1.6;
+      g.lineWidth=Math.max(0.4, r*0.075);
+      g.strokeStyle=DIM(col,34);
+      g.beginPath(); g.arc(cx,cy,gr,ARC_LIT[0],ARC_LIT[1]); g.stroke();
+      g.strokeStyle=LIT(col,28);
+      g.beginPath(); g.arc(cx,cy,gr,ARC_DIM[0],ARC_DIM[1]); g.stroke();
+    }
+  }
+}
+
+// ── SVG export — matches generate_shells.py drawer-faces.svg ──
+// red = cut (face perimeter + ⌀3.828 bolt hole), black = etch, blue = ID.
+// 1:1 mm, so it drops straight into the laser after the pipeline that
+// makes the STLs/manifest — this is the face sheet only.
+function buildSVG(){
+  const reveal=1.2, hole=3.828, f4=n=>n.toFixed(2);
+  const cut=[], etch=[], ids=[];
+  for(const f of faces){
+    cut.push(`<rect x='${f4(f.x)}' y='${f4(f.y)}' width='${f4(f.w)}' height='${f4(f.h)}' fill='none' stroke='red' stroke-width='0.1'/>`);
+    cut.push(`<circle cx='${f4(f.x+f.w/2)}' cy='${f4(f.y+f.h/2)}' r='${f4(hole/2)}' fill='none' stroke='red' stroke-width='0.1'/>`);
+    ids.push(`<text x='${f4(f.x+f.w/2)}' y='${f4(f.y+f.h/2-5)}' font-size='6' fill='blue' text-anchor='middle' font-family='sans-serif'>${f.id} F${f.fc??''}</text>`);
+  }
+  // Etch layer — same geometry as the on-screen render
+  if(S.fill!=='none'){
+    const eStroke=f=>darken(S.colors?(f.hex||'#888'):'#c9c2b4', S.etchDark);
+    if(S.fill==='terrain'){
+      const n=S.tlev, levels=[...Array(n)].map((_,i)=>(i+1)/(n+1));
+      for(const f of faces){
+        const d=terrainSegs(f,levels).map(([a,b])=>`M${f4(a[0])} ${f4(a[1])} L${f4(b[0])} ${f4(b[1])}`).join(' ');
+        if(d) etch.push(`<path d='${d}' fill='none' stroke='${eStroke(f)}' stroke-width='0.1'/>`);
+      }
+    } else {
+      const lines = S.fill==='grain'?genGrain():genFlow();
+      for(const f of faces){
+        const runs=clipToFace(lines,f);
+        if(!runs.length) continue;
+        const d=runs.map(run=>'M'+run.map(p=>`${f4(p[0])} ${f4(p[1])}`).join(' L')).join(' ');
+        etch.push(`<path d='${d}' fill='none' stroke='${eStroke(f)}' stroke-width='0.1'/>`);
+      }
+    }
+  }
+  return `<svg xmlns='http://www.w3.org/2000/svg' width='${cabW}mm' height='${cabH}mm' viewBox='0 0 ${cabW} ${cabH}'>
+<g id='etch'>${etch.join('')}</g>
+<g id='cut'>${cut.join('')}</g>
+<g id='ids'>${ids.join('')}</g>
+</svg>`;
+}
+
+function exportSVG(){
+  if(!DATA){ alert('Load a composition first.'); return; }
+  const blob=new Blob([buildSVG()],{type:'image/svg+xml'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`etch-${S.fill}-seed${DATA.meta?.seed||'x'}.svg`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function readout(){
+  const r=document.getElementById('readout');
+  if(!r) return;   // absent in studio host — the transfer panel is lab-only
+  if(S.fill==='grain') r.textContent=
+`face_fill = "grain"
+grain_smin = ${S.gsmin}
+grain_smax = ${S.gsmax}
+grain_wobble = ${S.gwob}
+grain_freq = ${S.gfreq}`;
+  else if(S.fill==='terrain') r.textContent=
+`face_fill = "terrain"
+terrain_levels =
+  [k/${S.tlev+1} for k
+   in range(1, ${S.tlev+1})]`;
+  else if(S.fill==='flow') r.textContent=
+`face_fill = "flow"
+flow_sep = ${S.fsep}
+flow_maxlen = ${S.flen}`;
+  else r.textContent='face_fill = "none"';
+}
+
+// ── UI wiring ──
+
+return { render, loadJSON, buildSVG, calibrateField,
+         get S(){return S;}, get faces(){return faces;},
+         set faces(v){faces=v;}, setSeed(v){colorSeed=v;},
+         setCab(w,h){cabW=w;cabH=h;},
+         setCanvas(el){HOST_CV=el;} };
+})();
+</script>
+
+<script>
+// ── Step 5 + 6: etch/render controls + unified exports (studio host) ──
+// The ETCH namespace exposes get S() (live state) and buildSVG(); this
+// block drives them from the sidebar and wires the SVG/PNG exports.
+(function(){
+  if (typeof ETCH === 'undefined') return;
+  const S = ETCH.S;
+
+  function showFillPanels(){
+    document.getElementById('p-grain-s').style.display   = S.fill==='grain'   ? '' : 'none';
+    document.getElementById('p-terrain-s').style.display = S.fill==='terrain' ? '' : 'none';
+    document.getElementById('p-flow-s').style.display    = S.fill==='flow'    ? '' : 'none';
+  }
+  // Render-only tool: any etch control just re-runs the debounced render.
+  function toRender(){ if (typeof scheduleRealistic === 'function') scheduleRealistic(); }
+
+  // Seed the renderer's fill from the select (default flow = the built piece).
+  const fillSel = document.getElementById('etchFill');
+  if (fillSel){ S.fill = fillSel.value; showFillPanels(); }
+  if (fillSel) fillSel.addEventListener('change', e => { S.fill = e.target.value; showFillPanels(); toRender(); });
+
+  const knobs = document.getElementById('etchKnobs');
+  if (knobs) knobs.addEventListener('change', e => { S.showKnobs = e.target.checked; toRender(); });
+
+  function wire(id, key, vid, fmt, unit){
+    const el = document.getElementById(id); if(!el) return;
+    el.addEventListener('input', e => {
+      S[key] = Number(e.target.value);
+      if (vid){ const v = document.getElementById(vid); if(v) v.textContent = (fmt?fmt(S[key]):S[key]) + (unit||''); }
+      toRender();
+    });
+  }
+  wire('etchReveal','reveal','ev-reveal', v=>v.toFixed(1), 'mm');
+  wire('etchRelief','relief','ev-relief', null, '%');
+  wire('etchDark','etchDark','ev-dark',   null, '%');
+  wire('etchSheen','sheen','ev-sheen',    null, '%');
+  wire('etchHi','hi','ev-hi',             null, '%');
+  wire('etchSh','sh','ev-sh',             null, '%');
+  wire('etchFrame','frame','ev-frame',    null, 'mm');
+  wire('etchGsmin','gsmin','ev-gsmin', v=>v.toFixed(1));
+  wire('etchGsmax','gsmax','ev-gsmax', v=>v.toFixed(1));
+  wire('etchGwob','gwob','ev-gwob',    v=>v.toFixed(2));
+  wire('etchGfreq','gfreq','ev-gfreq', v=>v.toFixed(1));
+  wire('etchTlev','tlev','ev-tlev');
+  wire('etchFsep','fsep','ev-fsep', v=>v.toFixed(2));
+  wire('etchFlen','flen','ev-flen');
+
+  // ── Unified exports ──
+  function seedTag(){
+    const el = document.getElementById('seed');
+    return (el && el.value !== '') ? el.value : 'x';
+  }
+  const bSVG = document.getElementById('btnExportSVG');
+  if (bSVG) bSVG.addEventListener('click', () => {
+    if (typeof syncEtch === 'function') syncEtch();   // faces current with the live composition
+    const blob = new Blob([ETCH.buildSVG()], {type:'image/svg+xml'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `etch-${S.fill}-seed${seedTag()}.svg`;
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+  const bPNG = document.getElementById('btnSavePNG');
+  if (bPNG) bPNG.addEventListener('click', () => {
+    const cv = document.getElementById('canvas');
+    const a = document.createElement('a');
+    a.href = cv.toDataURL('image/png');
+    a.download = `echo-fields-seed${seedTag()}-${cv.width}px.png`;
+    a.click();
+  });
+  // Render-default entry is owned by bootLoad() so it fires after the real
+  // composition is imported (see init).
+})();
+</script>
+</body>
+</html>
