@@ -318,12 +318,15 @@ canvas { display: block; }
   gap: 20px;
 }
 .stats-bar span { color: var(--text); }
+  .cab-id{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:-6px 0 14px;
+    font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
 
 <aside class="sidebar">
   <div class="sidebar-title">Memory Palace</div>
+  <div class="cab-id"><span id="cabNo">#—</span><span id="cabDrawers">Drawers: —</span></div>
 
   <div class="section">
     <button id="btnLoadOriginal">↺ Load original</button>
@@ -530,7 +533,6 @@ canvas { display: block; }
       <div class="row"><label>Etch fill</label></div>
       <select id="etchFill">
         <option value="flow" selected>Flow — gradient streams</option>
-        <option value="terrain">Terrain — topo contours</option>
         <option value="grain">Grain — vertical striations</option>
         <option value="none">None — colors only</option>
       </select>
@@ -590,10 +592,10 @@ canvas { display: block; }
       <div class="hint-sm">The physical frame. <b>•••</b> randomize may reshape these; <b>•</b> and <b>••</b> hold them. Load original restores.</div>
 
       <div class="row"><label>Cabinet width (mm)</label><span class="val" id="v-cw">762</span></div>
-      <input type="range" id="compW" min="300" max="1200" value="762" step="25.4">
+      <input type="range" id="compW" min="76.2" max="1200" value="762" step="25.4">
 
       <div class="row"><label>Cabinet height (mm)</label><span class="val" id="v-ch">1016</span></div>
-      <input type="range" id="compH" min="300" max="1500" value="1016" step="25.4">
+      <input type="range" id="compH" min="60.96" max="1500" value="1016" step="25.4">
 
       <div class="row"><label>Drawer width (mm)</label><span class="val" id="v-mw">127</span></div>
       <input type="range" id="maxWidthIn" min="76.2" max="127" value="127" step="25.4">
@@ -619,8 +621,21 @@ canvas { display: block; }
     <button id="btnExportSVG" style="margin-top:8px">Export etch SVG (cut + etch)</button>
     <div style="font-size:10px;color:var(--muted);margin-top:4px">1:1 laser face sheet — red cut · black etch · blue IDs.</div>
 
+    <div class="row" style="margin-top:8px"><label>4:5 scale</label></div>
+    <select id="posterScale">
+      <option value="fit" selected>Fit to frame</option>
+      <option value="wall">Wall — true scale</option>
+    </select>
+    <div class="row" id="wallRow" style="display:none"><label>Wall width</label><span class="val" id="v-wallw">1360 mm</span></div>
+    <input type="range" id="wallW" min="600" max="2400" value="1360" step="20" style="display:none">
+    <div class="row"><label>4:5 placement</label></div>
+    <select id="posterPlace">
+      <option value="center" selected>Centered</option>
+      <option value="eye">Eye line — shared center height</option>
+      <option value="wander">Wander — off-center, by cabinet #</option>
+    </select>
     <button id="btnSave45" style="margin-top:8px">Save 4:5</button>
-    <div style="font-size:10px;color:var(--muted);margin-top:4px">Instagram portrait (2160 × 2700): the cabinet centered on white with its full drop shadow.</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Instagram portrait (2160 × 2700) on white with the full drop shadow. Wall = every export at the same scale, so small cabinets stay small; the wall is this wide in real millimetres.</div>
 
     <button id="btnSavePNG" style="margin-top:8px">Save PNG (current view)</button>
     <div style="font-size:10px;color:var(--muted);margin-top:4px">Snapshots the canvas — switch to Render first for a promo image.</div>
@@ -631,7 +646,7 @@ canvas { display: block; }
   <div class="canvas-wrap" id="wrap">
     <canvas id="canvas"></canvas>
   </div>
-  <div class="stats-bar" id="stats"></div>
+  <div class="stats-bar" id="stats" style="display:none"></div>
 </main>
 
 <script>window.MEMORY_PALACE_COMP={
@@ -3594,6 +3609,8 @@ function render() {
   // realistic frame until the new one lands, so there's no flat flash.
   const cells = buildCells(canvas.width, canvas.height);
   const totalUnitsH = composition.reduce((s,r) => s + r.h, 0);
+  document.getElementById('cabNo').textContent = '#' + S.seed;
+  document.getElementById('cabDrawers').textContent = 'Drawers: ' + cells.length;
   document.getElementById('stats').innerHTML =
     `Drawers: <span>${cells.length}</span> &nbsp;·&nbsp; Grid: <span>${S.unitsWide} × ${totalUnitsH} units</span> &nbsp;·&nbsp; Seed: <span>${S.seed}</span>`;
   // Refresh the grid hint with the ACTUAL row count (deriveUnits sets a
@@ -4332,7 +4349,7 @@ function loadJSON(obj){
 function genGrain(){
   const smin=S.gsmin, smax=S.gsmax, wob=S.gwob, freq=S.gfreq;
   const cell=smin, hashPts=new Map();
-  const key=(i,j)=>i+':'+j;
+  const key=(i,j)=>(i+4096)*16384+(j+4096);   // numeric key: much faster than 'i:j' strings
   // NORMALIZED field so smin/smax are actually reached
   const sep=(px,py)=>smin+(smax-smin)*grainT(px,py);
   function free(px,py,f=0.88){
@@ -4424,9 +4441,13 @@ function genFlow(){
   return lines;
 }
 
-function clipToFace(lines,f){
-  const out=[];
-  for(const line of lines){
+// boxes (optional): per-line [minX,maxX,minY,maxY] — lines that can't reach
+// the face are skipped before any per-point work.
+function clipToFace(lines,f,boxes){
+  const out=[], x1=f.x+f.w, y1=f.y+f.h;
+  for(let li=0; li<lines.length; li++){
+    const line=lines[li];
+    if(boxes){ const b=boxes[li]; if(b[1]<f.x||b[0]>x1||b[3]<f.y||b[2]>y1) continue; }
     let run=[];
     for(const [px,py] of line){
       if(px>=f.x&&px<=f.x+f.w&&py>=f.y&&py<=f.y+f.h) run.push([px,py]);
@@ -4464,6 +4485,8 @@ function terrainSegs(f,levels){
 
 // ── Render ──
 let cachedLines=null, cacheKey='';
+let lineBoxes=null;              // per-line bounds for fast clipping
+const facePaths=new Map();       // face rect → its etched Path2D (until the lines change)
 function render(){
   if(!DATA) return;
   // Display-only face rects. Positive `grow` shrinks the visible reveal;
@@ -4518,7 +4541,13 @@ function render(){
   if(k!==cacheKey){
     cachedLines = S.fill==='grain'?genGrain() : S.fill==='flow'?genFlow() : null;
     cacheKey=k;
+    lineBoxes = cachedLines && cachedLines.map(l=>{
+      let a=1e9,b=-1e9,c=1e9,d=-1e9;
+      for(const [x,y] of l){ if(x<a)a=x; if(x>b)b=x; if(y<c)c=y; if(y>d)d=y; }
+      return [a,b,c,d]; });
+    facePaths.clear();
   }
+  if(facePaths.size>4000) facePaths.clear();   // layouts come and go; keep it bounded
   // ── Etch ──────────────────────────────────────────────────
   // Flat mode: one stroke, a darker value of the face (honest for tuning).
   // Realistic: the score is a V-groove with two walls, so it's drawn as a
@@ -4530,13 +4559,20 @@ function render(){
     ? [...Array(S.tlev)].map((_,i)=>(i+1)/(S.tlev+1)) : null;
   const carve=0.16;   // half-width of the groove, mm
   for(const f of dfaces){
-    const p=new Path2D();
+    let p;
     if(S.fill==='terrain'){
+      p=new Path2D();
       for(const [a,b] of terrainSegs(f,levels)){ p.moveTo(a[0],a[1]); p.lineTo(b[0],b[1]); }
     } else {
-      for(const run of clipToFace(cachedLines,f)){
-        p.moveTo(run[0][0],run[0][1]);
-        for(let i=1;i<run.length;i++) p.lineTo(run[i][0],run[i][1]);
+      const fk=f.x+','+f.y+','+f.w+','+f.h;
+      p=facePaths.get(fk);
+      if(!p){                                   // first time this face meets these lines
+        p=new Path2D();
+        for(const run of clipToFace(cachedLines,f,lineBoxes)){
+          p.moveTo(run[0][0],run[0][1]);
+          for(let i=1;i<run.length;i++) p.lineTo(run[i][0],run[i][1]);
+        }
+        facePaths.set(fk,p);
       }
     }
     const col=faceCol(f);
@@ -4849,6 +4885,14 @@ return { render, loadJSON, buildSVG, calibrateField,
   // Save 4:5 — re-render the cabinet at export resolution (not an upscale of
   // the screen), then set it on white with a soft drop shadow that fits the
   // frame. Same shadow recipe as the site: down, wide, ~35% black.
+  const ps = document.getElementById('posterScale');
+  if (ps) ps.addEventListener('change', () => {
+    const wall = ps.value === 'wall';
+    document.getElementById('wallRow').style.display = wall ? '' : 'none';
+    document.getElementById('wallW').style.display = wall ? '' : 'none';
+  });
+  const ww = document.getElementById('wallW');
+  if (ww) ww.addEventListener('input', () => { document.getElementById('v-wallw').textContent = ww.value + ' mm'; });
   const b45 = document.getElementById('btnSave45');
   if (b45) b45.addEventListener('click', () => {
     const cv = document.getElementById('canvas');
@@ -4862,16 +4906,34 @@ return { render, loadJSON, buildSVG, calibrateField,
     // margins allow. The shadow spreads BLUR on every side and drops DROP,
     // so it reaches (BLUR-DROP) above, BLUR at the sides, (BLUR+DROP) below.
     const L = Math.max(totW, totH);
-    const fit = Math.min(OW * (1 - 2*EDGE) / (totW + 2*SEEN*BLUR*L),
-                         OH * (1 - 2*EDGE) / (totH + 2*SEEN*BLUR*L + DROP*L));   // output px per mm
+    const maxFit = Math.min(OW * (1 - 2*EDGE) / (totW + 2*SEEN*BLUR*L),
+                            OH * (1 - 2*EDGE) / (totH + 2*SEEN*BLUR*L + DROP*L));   // largest that fits
+    const scaleMode = document.getElementById('posterScale').value;
+    const wallMm = Number(document.getElementById('wallW').value) || 1360;
+    // Wall: one fixed scale for every export (the frame is wallMm wide), so a
+    // 2x2 reads tiny and a full cabinet fills it. Never larger than fits.
+    const fit = scaleMode === 'wall' ? Math.min(OW / wallMm, maxFit) : maxFit;   // output px per mm
     window.__exportPx = fit / 2; ETCH.render();
     const out = document.createElement('canvas'); out.width = OW; out.height = OH;
     const g = out.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, OW, OH);
     const w = cv.width, h = cv.height, big = Math.max(w, h);
     const up = Math.max(0, SEEN*BLUR - DROP) * big, down = (SEEN*BLUR + DROP) * big;
-    const x = (OW - w) / 2;
-    const y = (OH - (h + up + down)) / 2 + up;                   // centre the cabinet+shadow shape
+    const side = SEEN * BLUR * big;
+    // the cabinet's top-left may sit anywhere in [x0..x1]×[y0..y1] and keep its shadow in frame
+    const x0 = OW*EDGE + side, x1 = OW - OW*EDGE - side - w;
+    const y0 = OH*EDGE + up,   y1 = OH - OH*EDGE - down - h;
+    const place = document.getElementById('posterPlace').value;
+    let x = (OW - w) / 2, y = (OH - (h + up + down)) / 2 + up;    // centred cabinet+shadow shape
+    if (place === 'eye') {
+      y = OH * 0.45 - h / 2;                                       // every piece centres on one line
+    } else if (place === 'wander') {
+      const r = (k) => { const v = Math.sin(S.seed * 12.9898 + k * 78.233) * 43758.5453; return v - Math.floor(v); };
+      x = x0 + (x1 - x0) * r(1);
+      y = y0 + (y1 - y0) * r(2);
+    }
+    x = Math.min(Math.max(x, x0), Math.max(x0, x1));               // keep the shadow inside
+    y = Math.min(Math.max(y, y0), Math.max(y0, y1));
     g.save();
     g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = big * BLUR; g.shadowOffsetY = big * DROP;
     g.drawImage(cv, x, y);
