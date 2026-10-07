@@ -318,8 +318,8 @@ canvas { display: block; }
   gap: 20px;
 }
 .stats-bar span { color: var(--text); }
-  .cab-id{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:-6px 0 14px;
-    font-variant-numeric:tabular-nums}
+  .cab-id{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin:2px 0 16px;
+    padding:0 26px;letter-spacing:.04em;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -3862,8 +3862,15 @@ function _rndFormat(){
     const v = document.getElementById(vid); if (v) v.textContent = fmt ? fmt(val) : val;
   };
   const mult = n => Math.round(n * 25.4);              // slider step = 25.4mm (2 units)
-  set('compW', 'compW', mult(20 + Math.floor(Math.random()*22)), 'v-cw', Math.round); // ~508–1041
-  set('compH', 'compH', mult(28 + Math.floor(Math.random()*26)), 'v-ch', Math.round); // ~711–1346
+  if (Math.random() < 0.33) {
+    // ~1 in 3: a SMALL cabinet — anywhere from one drawer to ~15 in.
+    // Sizes step like the sliders (from 76.2 / 60.96, in 25.4 mm steps).
+    set('compW', 'compW', Math.round((76.2  + 25.4 * Math.floor(Math.random()*12)) * 10) / 10, 'v-cw', Math.round); // 76–356
+    set('compH', 'compH', Math.round((60.96 + 25.4 * Math.floor(Math.random()*12)) * 100) / 100, 'v-ch', Math.round); // 61–340
+  } else {
+    set('compW', 'compW', mult(20 + Math.floor(Math.random()*22)), 'v-cw', Math.round); // ~508–1041
+    set('compH', 'compH', mult(28 + Math.floor(Math.random()*26)), 'v-ch', Math.round); // ~711–1346
+  }
   set('maxWidthIn', 'maxWidthIn', _pickOf([101.6, 127]),         'v-mw', Math.round); // >min, so rows vary & fit
   set('rowHeightIn','rowHeightIn', _pickOf([60.96, 101.6]),      'v-rh', v => v);
 }
