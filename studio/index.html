@@ -558,14 +558,14 @@ canvas { display: block; }
       <div class="row"><label>Shadow</label><span class="val" id="ev-sh">60%</span></div>
       <input type="range" id="etchSh" min="0" max="150" value="60" step="5">
 
-      <div class="row"><label>Frame</label><span class="val" id="ev-frame">8mm</span></div>
-      <input type="range" id="etchFrame" min="0" max="60" value="8" step="2">
+      <div class="row"><label>Frame</label><span class="val" id="ev-frame">4mm</span></div>
+      <input type="range" id="etchFrame" min="0" max="60" value="4" step="2">
 
       <div class="etch-sub" id="p-grain-s">
-        <div class="row"><label>Grain min spacing</label><span class="val" id="ev-gsmin">3.0</span></div>
-        <input type="range" id="etchGsmin" min="1" max="8" value="3" step="0.1">
-        <div class="row"><label>Grain max spacing</label><span class="val" id="ev-gsmax">9.5</span></div>
-        <input type="range" id="etchGsmax" min="3" max="20" value="9.5" step="0.5">
+        <div class="row"><label>Grain min spacing</label><span class="val" id="ev-gsmin">2.0</span></div>
+        <input type="range" id="etchGsmin" min="1" max="4" value="2" step="0.1">
+        <div class="row"><label>Grain max spacing</label><span class="val" id="ev-gsmax">4.5</span></div>
+        <input type="range" id="etchGsmax" min="2" max="6" value="4.5" step="0.25">
         <div class="row"><label>Grain wobble</label><span class="val" id="ev-gwob">0.50</span></div>
         <input type="range" id="etchGwob" min="0" max="1.5" value="0.5" step="0.05">
         <div class="row"><label>Grain wobble freq</label><span class="val" id="ev-gfreq">6.0</span></div>
@@ -579,7 +579,7 @@ canvas { display: block; }
 
       <div class="etch-sub" id="p-flow-s">
         <div class="row"><label>Flow separation</label><span class="val" id="ev-fsep">2.5</span></div>
-        <input type="range" id="etchFsep" min="1.5" max="8" value="2.5" step="0.25">
+        <input type="range" id="etchFsep" min="1.5" max="4.5" value="2.5" step="0.25">
         <div class="row"><label>Flow max length</label><span class="val" id="ev-flen">80</span></div>
         <input type="range" id="etchFlen" min="20" max="200" value="80" step="10">
       </div>
@@ -3874,10 +3874,21 @@ function _rndFormat(){
   set('maxWidthIn', 'maxWidthIn', _pickOf([101.6, 127]),         'v-mw', Math.round); // >min, so rows vary & fit
   set('rowHeightIn','rowHeightIn', _pickOf([60.96, 101.6]),      'v-rh', v => v);
 }
+// ••• only: the etch itself — Flow or vertical Grain (with its own waviness).
+// Goes through the controls' own events so the etch panel stays in sync.
+function _rndEtch(){
+  const fill = _pickOf(['flow','grain']);
+  const sel = document.getElementById('etchFill');
+  if (sel) { sel.value = fill; sel.dispatchEvent(new Event('change')); }
+  if (fill === 'grain') {
+    const wob = document.getElementById('etchGwob');
+    if (wob) { wob.value = _pickOf([0.2, 0.35, 0.5, 0.7, 0.9]); wob.dispatchEvent(new Event('input')); }
+  }
+}
 function randomize(tier){
   _rndSeeds();
   if (tier >= 2) _rndStrategies();
-  if (tier >= 3) { _rndPalette(); _rndFormat(); }   // ••• also reshapes scale
+  if (tier >= 3) { _rndPalette(); _rndFormat(); _rndEtch(); }   // ••• also reshapes scale + etch
   go();   // regenerate + render; go() clears the imported flag
 }
 ['rnd1','rnd2','rnd3'].forEach((id, i) => {
@@ -4261,8 +4272,8 @@ function vnoise(nx,ny,f,seed){
 
 const S = {
   fill:'grain', colors:true, etchDark:30, showKnobs:true, realistic:true,
-  relief:100, hi:55, sh:60, sheen:35, reveal:1.2, frame:8,
-  gsmin:3.0, gsmax:9.5, gwob:0.5, gfreq:6.0,
+  relief:100, hi:55, sh:60, sheen:35, reveal:1.2, frame:4,
+  gsmin:2.0, gsmax:4.5, gwob:0.5, gfreq:6.0,   // tight: wide gaps read as accidental
   tlev:17, fsep:2.5, flen:80,
 };
 let DATA=null, faces=[], cabW=762, cabH=1016, colorSeed=1234;
@@ -4272,7 +4283,12 @@ let HOST_CV=null;   // studio sets this so render() draws to its canvas
 // grown or shrunk by the Reveal slider for looks only.
 let dfaces=[];
 
-function field(X,Y){ return vnoise(X/cabW, Y/cabH, 3.2, colorSeed); }
+// The etch field has a real-world size: it's laid out as if every cabinet
+// were at least as big as the original (762 x 1016 mm). Big cabinets are
+// unchanged; a small one shows a calm slice of the field instead of the
+// whole field squeezed into a few inches (which twisted and fanned the lines).
+const FIELD_REF_W = 762, FIELD_REF_H = 1016;
+function field(X,Y){ return vnoise(X/Math.max(cabW,FIELD_REF_W), Y/Math.max(cabH,FIELD_REF_H), 3.2, colorSeed); }
 
 // Etch colour = the face's own colour, scaled darker in value. Keeps
 // hue & saturation, drops lightness proportionally: 0% = same colour
@@ -4417,7 +4433,21 @@ function genGrain(){
 
 function genFlow(){
   const sepv=S.fsep, step=1.0, maxlen=S.flen;
-  const occ=new Set(), key=(px,py)=>Math.floor(px/sepv)+':'+Math.floor(py/sepv);
+  // Points are binned in a grid; a line STOPS only when it comes within half
+  // the spacing of another line, and a new line STARTS only a full spacing
+  // away. (Stopping on entering any occupied cell left hard seams where many
+  // lines ended on the same front.)
+  const dtest=0.5*sepv, cellSz=sepv, grid=new Map();
+  const ck=(i,j)=>(i+4096)*16384+(j+4096);
+  const near=(px,py,d)=>{
+    const ci=Math.floor(px/cellSz), cj=Math.floor(py/cellSz), d2=d*d;
+    for(let j=cj-1;j<=cj+1;j++) for(let i=ci-1;i<=ci+1;i++){
+      const b=grid.get(ck(i,j)); if(!b) continue;
+      for(let k=0;k<b.length;k+=2){ const dx=b[k]-px, dy=b[k+1]-py; if(dx*dx+dy*dy<d2) return true; }
+    }
+    return false;
+  };
+  const occ={ has:([px,py])=>near(px,py,dtest) };   // used while tracing
   const grad=(px,py)=>{
     const h=0.5;
     return [(field(px+h,py)-field(px-h,py))/(2*h),(field(px,py+h)-field(px,py-h))/(2*h)];
@@ -4429,7 +4459,7 @@ function genFlow(){
       if(m<1e-5) break;
       px+=sign*gx/m*step; py+=sign*gy/m*step;
       if(px<0||px>cabW||py<0||py>cabH) break;
-      if(occ.has(key(px,py))) break;
+      if(occ.has([px,py])) break;
       pts.push([px,py]);
     }
     return pts;
@@ -4438,12 +4468,15 @@ function genFlow(){
   for(let j=0;j<cabH/s;j++) for(let i=0;i<cabW/s;i++){
     const sx=(i+hash01(i,j,colorSeed))*s, sy=(j+hash01(j,i,colorSeed+1))*s;
     if(sx<0||sx>cabW||sy<0||sy>cabH) continue;
-    if(occ.has(key(sx,sy))) continue;
+    if(near(sx,sy,sepv)) continue;                       // seeds keep a full spacing
     const fwd=trace(sx,sy,-1), bwd=trace(sx,sy,1);
     const line=bwd.slice(1).reverse().concat(fwd);
     if(line.length<6) continue;
     lines.push(line);
-    for(const [px,py] of line) occ.add(key(px,py));
+    for(const [px,py] of line){
+      const kk=ck(Math.floor(px/cellSz),Math.floor(py/cellSz));
+      let b=grid.get(kk); if(!b){ b=[]; grid.set(kk,b); } b.push(px,py);
+    }
   }
   return lines;
 }
