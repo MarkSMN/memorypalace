@@ -556,8 +556,8 @@ canvas { display: block; }
       <div class="row"><label>Shadow</label><span class="val" id="ev-sh">60%</span></div>
       <input type="range" id="etchSh" min="0" max="150" value="60" step="5">
 
-      <div class="row"><label>Frame</label><span class="val" id="ev-frame">12mm</span></div>
-      <input type="range" id="etchFrame" min="0" max="60" value="12" step="2">
+      <div class="row"><label>Frame</label><span class="val" id="ev-frame">8mm</span></div>
+      <input type="range" id="etchFrame" min="0" max="60" value="8" step="2">
 
       <div class="etch-sub" id="p-grain-s">
         <div class="row"><label>Grain min spacing</label><span class="val" id="ev-gsmin">3.0</span></div>
@@ -4237,7 +4237,7 @@ function vnoise(nx,ny,f,seed){
 
 const S = {
   fill:'grain', colors:true, etchDark:30, showKnobs:true, realistic:true,
-  relief:100, hi:55, sh:60, sheen:35, reveal:1.2, frame:12,
+  relief:100, hi:55, sh:60, sheen:35, reveal:1.2, frame:8,
   gsmin:3.0, gsmax:9.5, gwob:0.5, gfreq:6.0,
   tlev:17, fsep:2.5, flen:80,
 };
