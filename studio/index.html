@@ -361,6 +361,10 @@ canvas { display: block; }
       <option value="edges">Dense at edges</option>
     </select>
 
+    <div class="row"><label>Tall drawers</label><span class="val" id="v-span">0%</span></div>
+    <input type="range" id="spanChance" min="0" max="1" value="0" step="0.05">
+    <div style="font-size:10px;color:var(--muted)">Chance a row hands one slot down to the next: a single drawer two rows tall. Lands where the field is calm when structure follows color.</div>
+
     <div style="font-size:10px;color:var(--muted)" id="derived-grid">— units</div>
 
     <div class="btn-group">
@@ -380,6 +384,14 @@ canvas { display: block; }
     <div class="row"><label>Jitter</label><span class="val" id="v-jitter">100%</span></div>
     <input type="range" id="jitter" min="0" max="1" value="1" step="0.05">
     <div style="font-size:10px;color:var(--muted)">0 = pure pattern · 100 = full random</div>
+
+    <div class="row"><label>Structure follows color</label><span class="val" id="v-flink">0%</span></div>
+    <input type="range" id="fieldLink" min="0" max="1" value="0" step="0.05">
+    <select id="fieldDir">
+      <option value="dark" selected>Small drawers where dark</option>
+      <option value="light">Small drawers where light</option>
+    </select>
+    <div style="font-size:10px;color:var(--muted)">Drawer widths and splits read the color field: dense where it's dark (or light), calm where it isn't. 0 = independent</div>
 
     <div class="seed-row">
       <label>Seed</label>
@@ -495,6 +507,19 @@ canvas { display: block; }
       <option value="light">Lighter in palette</option>
       <option value="shift">Shift +50%</option>
     </select>
+
+    <div class="row"><label>Knob placement</label></div>
+    <select id="knobPlace">
+      <option value="center" selected>Centered</option>
+      <option value="drift">Drift — slide toward the dark</option>
+      <option value="swirl">Swirl — circle the field</option>
+      <option value="toward">Lean toward focal point</option>
+      <option value="away">Lean away from focal point</option>
+      <option value="scatter">Scatter — each its own way</option>
+    </select>
+    <div class="row"><label>Knob offset</label><span class="val" id="v-koff">60%</span></div>
+    <input type="range" id="knobShift" min="0" max="1" value="0.6" step="0.05">
+    <div style="font-size:10px;color:var(--muted)">How far knobs travel from center, as a share of each face's free room. Focal point = the radial center.</div>
   </div>
 
   <details class="section" id="etchSection">
@@ -593,6 +618,9 @@ canvas { display: block; }
 
     <button id="btnExportSVG" style="margin-top:8px">Export etch SVG (cut + etch)</button>
     <div style="font-size:10px;color:var(--muted);margin-top:4px">1:1 laser face sheet — red cut · black etch · blue IDs.</div>
+
+    <button id="btnSave45" style="margin-top:8px">Save 4:5</button>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">Instagram portrait (2160 × 2700): the cabinet centered on white with its full drop shadow.</div>
 
     <button id="btnSavePNG" style="margin-top:8px">Save PNG (current view)</button>
     <div style="font-size:10px;color:var(--muted);margin-top:4px">Snapshots the canvas — switch to Render first for a promo image.</div>
@@ -2957,6 +2985,9 @@ const S = {
   rowHeight: 1,
   layoutPattern: 'random',
   jitter: 1.0,
+  fieldLink: 0,      // 0–1: how strongly drawer widths & splits follow the color field
+  fieldDir: 'dark',
+  spanChance: 0,     // 0–1: per row, chance one drawer continues down through the next row  // 'dark' = small/dense drawers where the field is at the palette's start
   colorMode: 'grid',
   gradAngle: 135,
   colorBy: 'noise',
@@ -2978,6 +3009,8 @@ const S = {
   pullMin: 8,
   pullMax: 18,
   pullColorMode: 'invert',
+  knobPlace: 'center',   // center | drift | swirl | toward | away | scatter
+  knobShift: 0.6,        // 0–1 of the free room between knob and face edge
 };
 
 // ── Composition ──────────────────────────────────────────────
@@ -3038,9 +3071,30 @@ function patternBias(nx, ny) {
   }
 }
 
+// Structure follows color: build the row left→right, each drawer's width
+// read from the color field at its position (narrow where dense). The
+// random share keeps rows from repeating and lets the seam check reroll.
+function genRowFromField(total, minW, maxW, rng, ny) {
+  const L = S.fieldLink, w = [];
+  let x = 0;
+  while (total - x > 0) {
+    const rem = total - x;
+    if (rem <= maxW) { w.push(rem); break; }
+    const nx = Math.min(1, (x + (minW + maxW) / 4) / total);
+    const calm = 1 - fieldDensity(nx, ny);
+    const t = Math.max(0, Math.min(1, calm * L + rng() * (1 - L) + (rng() - 0.5) * 0.24));
+    let wi = Math.max(minW, Math.min(maxW, Math.round(minW + t * (maxW - minW))));
+    if (rem - wi > 0 && rem - wi < minW) wi = rem - minW;   // never strand a sliver
+    w.push(wi); x += wi;
+  }
+  return w;
+}
+
 function genRowWithPattern(total, minW, maxW, rng, rowIdx, numRows) {
   const minN = Math.ceil(total / maxW);
   const maxN = Math.floor(total / minW);
+  if (S.fieldLink > 0)
+    return genRowFromField(total, minW, maxW, rng, numRows > 1 ? rowIdx / (numRows - 1) : 0.5);
 
   if (S.layoutPattern === 'random' || S.jitter >= 1) {
     return genRowWidths(total, minW, maxW, rng);
@@ -3138,8 +3192,18 @@ function generate() {
       default:        return 1;   // scatter
     }
   }
+  // …blended toward the color field when structure follows color
+  function splitW(nx, ny) {
+    const base = splitWeight(nx, ny);
+    if (!S.fieldLink) return base;
+    const d = fieldDensity(nx, ny);
+    return base * (1 - S.fieldLink) + d * d * 3 * S.fieldLink;
+  }
 
-  let prev = null;
+  let prev = null, pending = null;
+  // Tall drawers draw from their own stream, so turning them on never
+  // re-rolls the widths of rows they don't touch.
+  const rngT = rng32(S.seed * 13 + 7);
   for (let r = 0; r < S.numRows; r++) {
     // Short rows get proportionally narrower drawers — same aspect-ratio
     // range as a standard 60.96 row (e.g. 30.48 row: 3–5 units wide).
@@ -3153,11 +3217,20 @@ function generate() {
                : Math.max(3, Math.round(S.minWidth * scale));
     const maxW = hmm === SPLIT_ROW_H ? 6
                : Math.max(minW, Math.round(S.maxWidth * scale));
-    let widths, tries = 0;
-    do {
-      widths = genRowWithPattern(S.unitsWide, minW, maxW, rng, r, S.numRows);
-      tries++;
-    } while (prev && tries < 30 && hasSeamConflict(widths, prev));
+    let widths, tries = 0, heldIdx = -1;
+    if (pending) {
+      // A tall drawer from the row above occupies [x0, x0+w): fill around it.
+      const L = pending.x0, R = S.unitsWide - pending.x0 - pending.w;
+      const part = n => n > 0 ? genRowWithPattern(n, minW, Math.max(minW, maxW), rng, r, S.numRows) : [];
+      const left = part(L), right = part(R);
+      widths = [...left, pending.w, ...right];
+      heldIdx = left.length;
+    } else {
+      do {
+        widths = genRowWithPattern(S.unitsWide, minW, maxW, rng, r, S.numRows);
+        tries++;
+      } while (prev && tries < 30 && hasSeamConflict(widths, prev));
+    }
     // Guarantee the row fills the width EXACTLY (flush right). When minW==maxW
     // (e.g. drawer width forced to the 76.2mm minimum) and unitsWide isn't
     // divisible, the adjust loop can't balance and the row overflows — the
@@ -3190,21 +3263,21 @@ function generate() {
     let xu = 0, run = 0, runCap = 3, gap = 0, sprinkles = 0;
     const MAX_SPLIT_W = 5;    // dense rows: only slots ≤5u may split
     const SPRINKLE_W = 7;     // tall rows: slots ≤7u may sprinkle
-    const splits = widths.map(w => {
+    const splits = widths.map((w, i) => {
       const nx = (xu + w / 2) / S.unitsWide;
       xu += w;
-      if (!canSplit) return false;
+      if (!canSplit || i === heldIdx) return false;   // the tall drawer above owns this slot
       if (!isDense) {
         // Sprinkle register — rare, isolated, max 2 per row
         if (w > SPRINKLE_W || sprinkles >= 2) return false;
-        const s = rngS() < 0.12 * S.splitChance * splitWeight(nx, ny);
+        const s = rngS() < 0.12 * S.splitChance * splitW(nx, ny);
         if (s) sprinkles++;
         return s;
       }
       if (w > MAX_SPLIT_W) return false;
       if (S.splitPattern === 'row-burst') return rowBurst;
       if (gap > 0) { gap--; run = 0; return false; }
-      let s = rngS() < Math.min(1, S.splitChance * splitWeight(nx, ny));
+      let s = rngS() < Math.min(1, S.splitChance * splitW(nx, ny));
       if (s && run === 0) {
         const t = rngS(); // run length: 1 (20%), 2 (35%), 3 (30%), 4 (15%)
         runCap = t < 0.20 ? 1 : t < 0.55 ? 2 : t < 0.85 ? 3 : 4;
@@ -3221,18 +3294,45 @@ function generate() {
     // (60.96 rows stay quiet — 30.48 halves failed the physical test.)
     if (canSplit && !splits.some(Boolean)) {
       const okW = isDense ? MAX_SPLIT_W : SPRINKLE_W;
-      const cand = widths.map((w, i) => w <= okW ? i : -1).filter(i => i >= 0);
+      const cand = widths.map((w, i) => w <= okW && i !== heldIdx ? i : -1).filter(i => i >= 0);
       if (cand.length) {
         splits[cand[Math.floor(rngS() * cand.length)]] = true;
       } else {
         // No slot under the width cap — split the narrowest one anyway;
         // the guarantee outranks the proportion rule.
         const minI = widths.reduce((b, w, i) => w < widths[b] ? i : b, 0);
-        splits[minI] = true;
+        if (minI !== heldIdx) splits[minI] = true;
+      }
+    }
+    // Tall drawers: this row may hand one unsplit slot down to the next row.
+    // Never two in a row (no 3-row chains), and the next row must be able to
+    // fill the space on either side with legal drawer widths.
+    const held = widths.map((_, i) => i === heldIdx);
+    const spans = widths.map(() => false);
+    pending = null;
+    if (heldIdx < 0 && r < S.numRows - 1 && rngT() < S.spanChance) {
+      const hN = heights[r + 1], minN = hN === SPLIT_ROW_H ? 4
+        : Math.max(3, Math.round(S.minWidth * Math.min(1, hN / 60.96)));
+      const maxN = hN === SPLIT_ROW_H ? 6 : Math.max(minN, Math.round(S.maxWidth * Math.min(1, hN / 60.96)));
+      // can n units be filled with drawers minN..maxN wide? (0 = nothing to fill)
+      const fillable = n => { for (let k = Math.ceil(n / maxN); k * minN <= n; k++) if (k * maxN >= n) return true; return n === 0; };
+      let x = 0; const cand = [];
+      widths.forEach((w, i) => {
+        const L = x, R = S.unitsWide - x - w; x += w;
+        if (splits[i] || !fillable(L) || !fillable(R)) return;
+        const ny = S.numRows > 1 ? (r + 0.5) / (S.numRows - 1) : 0.5;
+        const calm = S.fieldLink > 0 ? 1 - fieldDensity((L + w / 2) / S.unitsWide, Math.min(1, ny)) : 0.5;
+        cand.push({ i, L, w, wt: S.fieldLink > 0 ? 0.05 + calm * calm * S.fieldLink + (1 - S.fieldLink) * 0.5 : 1 });
+      });
+      if (cand.length) {
+        let pick = rngT() * cand.reduce((a, c) => a + c.wt, 0), c = cand[0];
+        for (const k of cand) { pick -= k.wt; if (pick <= 0) { c = k; break; } }
+        spans[c.i] = true;
+        pending = { x0: c.L, w: c.w };
       }
     }
     // h in 0.8″ (20.32mm) units so the renderer scales rows proportionally
-    composition.push({ h: heights[r] / 20.32, hmm: heights[r], widths, splits });
+    composition.push({ h: heights[r] / 20.32, hmm: heights[r], widths, splits, spans, held });
     prev = widths;
   }
 }
@@ -3257,10 +3357,14 @@ function buildCells(W, H) {
   const uh = H / totalH;
   const cells = [];
   let py = 0;
-  for (const row of composition) {
+  composition.forEach((row, ri) => {
     let px = 0;
     row.widths.forEach((w, i) => {
-      if (row.splits && row.splits[i]) {
+      if (row.held && row.held[i]) { px += w * uw; return; }   // owned by the tall drawer above
+      if (row.spans && row.spans[i]) {
+        const h2 = row.h + composition[ri + 1].h;
+        cells.push({ w, h: h2, px, py, pw: w*uw, ph: h2*uh, span: true });
+      } else if (row.splits && row.splits[i]) {
         // Split slot: two stacked mini cells, top (T) then bottom (B)
         const hh = row.h * uh / 2;
         cells.push({ w, h: row.h/2, px, py,          pw: w*uw, ph: hh, slot: 'T' });
@@ -3271,7 +3375,7 @@ function buildCells(W, H) {
       px += w * uw;
     });
     py += row.h * uh;
-  }
+  });
   return cells;
 }
 
@@ -3298,6 +3402,24 @@ function colorClusters(K) {
     out.push({ x: hash01(i, 3, S.colorSeed), y: hash01(i, 7, S.colorSeed),
                t: hash01(i, 11, S.colorSeed) });
   return out;
+}
+
+// The color field at any point (0–1), for every position-based mode.
+// Modes that depend on the drawer itself (size, sizemix, shuffle) fall
+// back to the noise field, so structure can still follow something.
+function fieldAt(nx, ny) {
+  if (S.colorMode === 'gradient') return gradT(nx, ny, S.gradAngle);
+  switch (S.colorBy) {
+    case 'x': case 'y': case 'diagonal': case 'radial':
+    case 'clusters': case 'multiradial':
+      return cellT({ px: nx, py: ny, pw: 0, ph: 0, w: 1, h: 1 }, 1, 1);
+    default: return vnoise(nx, ny, 3.2, S.colorSeed);
+  }
+}
+// How dense the structure should be at a point: 1 = smallest drawers.
+function fieldDensity(nx, ny) {
+  const t = fieldAt(nx, ny);
+  return S.fieldDir === 'light' ? t : 1 - t;
 }
 
 function cellT(cell, W, H) {
@@ -3415,6 +3537,34 @@ function knobSize(cell, W, H, faceWmm, faceHmm) {
   let best = 0, bd = Infinity;
   KNOB_CAPS.forEach((c, i) => { const d = Math.abs(c - cap); if (d < bd) { bd = d; best = i; } });
   return best + 1;   // 1..8
+}
+
+// Knob placement: a direction in [-1,1]² for the knob at (nx, ny),
+// read from the same color field (or the radial focal point). Scaled by
+// knobShift and each face's free room when the spec is built.
+function knobDir(nx, ny) {
+  const len = (x, y) => Math.hypot(x, y) || 1e-9;
+  switch (S.knobPlace) {
+    case 'drift': case 'swirl': {
+      const e = 0.01;
+      const gx = (fieldAt(nx + e, ny) - fieldAt(nx - e, ny)) / (2 * e);
+      const gy = (fieldAt(nx, ny + e) - fieldAt(nx, ny - e)) / (2 * e);
+      const m = len(gx, gy), k = Math.min(1, m * 0.9);       // steeper field → further
+      return S.knobPlace === 'drift' ? [-gx / m * k, -gy / m * k]   // downhill: toward the dark
+                                     : [-gy / m * k,  gx / m * k];  // along the contours
+    }
+    case 'toward': case 'away': {
+      const dx = S.radialX - nx, dy = S.radialY - ny, m = len(dx, dy);
+      const sg = S.knobPlace === 'toward' ? 1 : -1, k = Math.min(1, m * 2.2);
+      return [sg * dx / m * k, sg * dy / m * k];
+    }
+    case 'scatter': {
+      const a = hash01(nx * 997, ny * 991, S.colorSeed + 5) * Math.PI * 2;
+      const k = Math.sqrt(hash01(ny * 983, nx * 977, S.colorSeed + 9));
+      return [Math.cos(a) * k, Math.sin(a) * k];
+    }
+    default: return [0, 0];
+  }
 }
 
 function drawPull(cx, cy, r, color) {
@@ -3540,6 +3690,8 @@ function importComposition(obj) {
     hmm:    row.height_mm,
     widths: row.drawers.map(d => d.width_units),
     splits: row.drawers.map(d => !!d.split),
+    spans:  row.drawers.map(d => d.span_rows === 2),
+    held:   row.drawers.map(d => !!d.held),
   }));
   S.numRows = composition.length;
 
@@ -3599,6 +3751,17 @@ document.getElementById('rowHeightMode').addEventListener('change', e => {
   go();
 });
 wire('splitChance', 'splitChance', 'split', v => Math.round(v * 100) + '%');
+wire('fieldLink', 'fieldLink', 'flink', v => Math.round(v * 100) + '%');
+wire('spanChance', 'spanChance', 'span', v => Math.round(v * 100) + '%');
+document.getElementById('fieldDir').addEventListener('change', e => {
+  S.fieldDir = e.target.value;
+  go();
+});
+// When structure follows color, a color-field change must rebuild the
+// structure too (but never overwrite the loaded original).
+function fieldChanged() {
+  if (S.fieldLink > 0 && !S.imported) go(); else render();
+}
 document.getElementById('splitPattern').addEventListener('change', e => {
   S.splitPattern = e.target.value;
   go();
@@ -3612,6 +3775,15 @@ wire('shellColor', 'shellColor', null);
 
 document.getElementById('pullColorMode').addEventListener('change', e => {
   S.pullColorMode = e.target.value;
+  render();
+});
+document.getElementById('knobPlace').addEventListener('change', e => {
+  S.knobPlace = e.target.value;
+  render();
+});
+document.getElementById('knobShift').addEventListener('input', e => {
+  S.knobShift = Number(e.target.value);
+  document.getElementById('v-koff').textContent = Math.round(S.knobShift * 100) + '%';
   render();
 });
 
@@ -3650,6 +3822,10 @@ function _rndStrategies(){
   rr('splitChance', 'splitChance', Math.round((0.4 + Math.random()*0.6)*20)/20, 'v-split', x => Math.round(x*100)+'%');
   rr('jitter',      'jitter',      Math.round((0.3 + Math.random()*0.7)*20)/20, 'v-jitter', x => Math.round(x*100)+'%');
   rr('colorSteps',  'colorSteps',  3 + Math.floor(Math.random()*6),             'v-steps',  x => x);
+  rr('fieldLink',   'fieldLink',   _pickOf([0, 0, 0.5, 0.75, 1]),               'v-flink',  x => Math.round(x*100)+'%');
+  rr('spanChance',  'spanChance',  _pickOf([0, 0, 0.2, 0.35, 0.5]),             'v-span',   x => Math.round(x*100)+'%');
+  set('fieldDir',      _pickOf(['dark','light']), 'fieldDir');
+  set('knobPlace',     _pickOf(['center','center','drift','swirl','toward','away','scatter']), 'knobPlace');
   const ro = document.getElementById('opts-radial'); if (ro) ro.style.display = S.colorBy === 'radial' ? 'flex' : 'none';
 }
 function _rndPalette(){
@@ -3778,18 +3954,18 @@ document.getElementById('btnCycle').addEventListener('click', () => {
 });
 document.getElementById('colorSeed').addEventListener('input', e => {
   S.colorSeed = Number(e.target.value) || 0;
-  render();
+  fieldChanged();
 });
 document.getElementById('btnColorSeed').addEventListener('click', () => {
   S.colorSeed = Math.floor(Math.random() * 100000);
   document.getElementById('colorSeed').value = S.colorSeed;
-  render();
+  fieldChanged();
 });
 
 document.getElementById('colorBy').addEventListener('change', e => {
   S.colorBy = e.target.value;
   document.getElementById('opts-radial').style.display = e.target.value === 'radial' ? 'flex' : 'none';
-  render();
+  fieldChanged();
 });
 
 // ── Radial controls ──────────────────────────────────────────
@@ -3799,7 +3975,7 @@ function setRadialCenter(x, y) {
   document.getElementById('radialY').value = Math.round(y * 100);
   document.getElementById('v-rx').textContent = Math.round(x * 100) + '%';
   document.getElementById('v-ry').textContent = Math.round(y * 100) + '%';
-  render();
+  fieldChanged();
 }
 
 // Build 3×3 preset grid
@@ -3820,17 +3996,17 @@ PRESETS.forEach(([x, y, label]) => {
 document.getElementById('radialX').addEventListener('input', e => {
   S.radialX = Number(e.target.value) / 100;
   document.getElementById('v-rx').textContent = e.target.value + '%';
-  render();
+  fieldChanged();
 });
 document.getElementById('radialY').addEventListener('input', e => {
   S.radialY = Number(e.target.value) / 100;
   document.getElementById('v-ry').textContent = e.target.value + '%';
-  render();
+  fieldChanged();
 });
 document.getElementById('radialScale').addEventListener('input', e => {
   S.radialScale = Number(e.target.value);
   document.getElementById('v-rscale').textContent = S.radialScale.toFixed(1);
-  render();
+  fieldChanged();
 });
 document.getElementById('pullMorph').addEventListener('change', e => {
   S.pullMorph = e.target.value;
@@ -3878,14 +4054,26 @@ function buildCompositionData() {
   let k = 0;
   // reveal per side — face is inset this much from the shell opening
   const REV = 1.2;
+  const KNOB_EDGE = 3;   // mm of face kept clear between knob cap and edge
   const specOf = (cell, faceWmm, faceHmm) => {
     const faceHex = cellColor(cell, canvas.width, canvas.height);
     const pullHex = pullColor(cell, canvas.width, canvas.height);
-    return {
+    const ps = knobSize(cell, canvas.width, canvas.height, faceWmm, faceHmm);
+    const spec = {
       face_color: nearestStop(faceHex), face_hex: faceHex,
       pull_color: nearestStop(pullHex), pull_hex: pullHex,
-      pull_size: knobSize(cell, canvas.width, canvas.height, faceWmm, faceHmm)
+      pull_size: ps
     };
+    if (S.knobPlace !== 'center' && S.knobShift > 0) {
+      const capR = Math.min(KNOB_CAPS[ps - 1], 0.72 * Math.min(faceWmm, faceHmm)) / 2;
+      const roomX = Math.max(0, faceWmm / 2 - capR - KNOB_EDGE);
+      const roomY = Math.max(0, faceHmm / 2 - capR - KNOB_EDGE);
+      const [ux, uy] = knobDir((cell.px + cell.pw / 2) / canvas.width, (cell.py + cell.ph / 2) / canvas.height);
+      const ox = Math.round(ux * S.knobShift * roomX * 10) / 10;
+      const oy = Math.round(uy * S.knobShift * roomY * 10) / 10;
+      if (ox || oy) spec.pull_offset_mm = [ox, oy];
+    }
+    return spec;
   };
   const rows = composition.map(row => {
     const rowH = row.hmm ?? S.rowHeightIn;
@@ -3898,6 +4086,12 @@ function buildCompositionData() {
         width_mm: wmm,
         width_in: Math.round(w * S.unitSize / 25.4 * 4) / 4
       };
+      if (row.held && row.held[i]) return { ...base, held: true };   // space taken by the tall drawer above
+      if (row.spans && row.spans[i]) {
+        const nxt = composition[composition.indexOf(row) + 1];
+        const spanH = Math.round((rowH + (nxt.hmm ?? S.rowHeightIn)) * 100) / 100;
+        return { ...base, span_rows: 2, span_height_mm: spanH, ...specOf(cells[k++], wmm - 2*REV, spanH - 2*REV) };
+      }
       if (row.splits && row.splits[i]) {
         // Split slot: two stacked half-height minis, top listed first
         const miniH = Math.round(rowH / 2 * 100) / 100;
@@ -3915,7 +4109,8 @@ function buildCompositionData() {
   const out = {
     meta: { generator: 'cabinet-visualizer', seed: S.seed,
             color_seed: S.colorSeed, color_by: S.colorBy,
-            pattern: S.layoutPattern },
+            pattern: S.layoutPattern,
+            field_link: S.fieldLink, field_dir: S.fieldDir, span_chance: S.spanChance },
     // Paint key: color 1..6 → hex. Faces & knobs reference these numbers.
     palette: Object.fromEntries(S.activePalette.map((hex, i) => [i + 1, hex])),
     shell_color: S.shellColor,
@@ -4008,6 +4203,10 @@ async function bootLoad(){
       setC('paletteMood',   'muted',  'paletteMood');
       setC('splitChance', 1, 'splitChance', 'v-split',  x => Math.round(x*100)+'%');
       setC('jitter',      1, 'jitter',      'v-jitter', x => Math.round(x*100)+'%');
+      setC('fieldLink',   0, 'fieldLink',   'v-flink',  x => Math.round(x*100)+'%');
+      setC('spanChance',  0, 'spanChance',  'v-span',   x => Math.round(x*100)+'%');
+      setC('fieldDir',    'dark', 'fieldDir');
+      setC('knobPlace',   'center', 'knobPlace');
       setC('colorSteps',  6, 'colorSteps',  'v-steps',  x => x);
       layout(); render();
     }
@@ -4105,18 +4304,19 @@ function loadJSON(obj){
   obj.rows.forEach((row,ri)=>{
     const h=row.height_mm; let x=0;
     row.drawers.forEach((d,ci)=>{
+      if(d.held){ x+=d.width_mm; return; }            // tall drawer from the row above
       const fw=d.width_mm-2*reveal, id=`R${ri+1}C${ci+1}`;
       // pull colour: prefer the exported hex, else look up the paint number
       const phex=part=>part.pull_hex || (obj.palette && obj.palette[part.pull_color]) || null;
       if(d.split){
         const mh=d.mini_height_mm||h/2, fh=mh-2*reveal;
         faces.push({x:x+reveal,y:y+reveal,w:fw,h:fh,hex:d.top.face_hex,id:id+'T',fc:d.top.face_color,
-                    phex:phex(d.top),ps:d.top.pull_size,pc:d.top.pull_color});
+                    phex:phex(d.top),ps:d.top.pull_size,pc:d.top.pull_color,ko:d.top.pull_offset_mm});
         faces.push({x:x+reveal,y:y+mh+reveal,w:fw,h:fh,hex:d.bottom.face_hex,id:id+'B',fc:d.bottom.face_color,
-                    phex:phex(d.bottom),ps:d.bottom.pull_size,pc:d.bottom.pull_color});
+                    phex:phex(d.bottom),ps:d.bottom.pull_size,pc:d.bottom.pull_color,ko:d.bottom.pull_offset_mm});
       } else {
-        faces.push({x:x+reveal,y:y+reveal,w:fw,h:h-2*reveal,hex:d.face_hex,id:id,fc:d.face_color,
-                    phex:phex(d),ps:d.pull_size,pc:d.pull_color});
+        faces.push({x:x+reveal,y:y+reveal,w:fw,h:(d.span_height_mm||h)-2*reveal,hex:d.face_hex,id:id,fc:d.face_color,
+                    phex:phex(d),ps:d.pull_size,pc:d.pull_color,ko:d.pull_offset_mm});
       }
       x+=d.width_mm;
     });
@@ -4286,7 +4486,7 @@ function render(){
   // Fit to BOTH axes so wide cabinets (>~800mm) don't clip off the pane.
   const _sb=document.querySelector('.sidebar');
   const _avW=window.innerWidth-(_sb?_sb.offsetWidth:320)-56;
-  const px=Math.min(1.1,(innerHeight-60)/totH,_avW/totW);
+  const px=window.__exportPx || Math.min(1.1,(innerHeight-60)/totH,_avW/totW);
   cv.width=totW*px*2; cv.height=totH*px*2;
   cv.style.width=totW*px+'px'; cv.style.height=totH*px+'px';
   const g=cv.getContext('2d'); g.scale(2*px,2*px);
@@ -4450,7 +4650,7 @@ function drawFaceEdges(g){
 function drawKnobs(g){
   if(!S.showKnobs) return;
   for(const f of dfaces){
-    const cx=f.x+f.w/2, cy=f.y+f.h/2, r=knobDia(f)/2;
+    const cx=f.x+f.w/2+(f.ko?f.ko[0]:0), cy=f.y+f.h/2+(f.ko?f.ko[1]:0), r=knobDia(f)/2;
     if(r<1) continue;
     const col=f.phex || '#9a9a9a';
 
@@ -4514,7 +4714,8 @@ function buildSVG(){
   const cut=[], etch=[], ids=[];
   for(const f of faces){
     cut.push(`<rect x='${f4(f.x)}' y='${f4(f.y)}' width='${f4(f.w)}' height='${f4(f.h)}' fill='none' stroke='red' stroke-width='0.1'/>`);
-    cut.push(`<circle cx='${f4(f.x+f.w/2)}' cy='${f4(f.y+f.h/2)}' r='${f4(hole/2)}' fill='none' stroke='red' stroke-width='0.1'/>`);
+    const kx=f.x+f.w/2+(f.ko?f.ko[0]:0), ky=f.y+f.h/2+(f.ko?f.ko[1]:0);   // bolt hole follows the knob
+    cut.push(`<circle cx='${f4(kx)}' cy='${f4(ky)}' r='${f4(hole/2)}' fill='none' stroke='red' stroke-width='0.1'/>`);
     ids.push(`<text x='${f4(f.x+f.w/2)}' y='${f4(f.y+f.h/2-5)}' font-size='6' fill='blue' text-anchor='middle' font-family='sans-serif'>${f.id} F${f.fc??''}</text>`);
   }
   // Etch layer — same geometry as the on-screen render
@@ -4644,6 +4845,43 @@ return { render, loadJSON, buildSVG, calibrateField,
     a.href = URL.createObjectURL(blob);
     a.download = `etch-${S.fill}-seed${seedTag()}.svg`;
     a.click(); URL.revokeObjectURL(a.href);
+  });
+  // Save 4:5 — re-render the cabinet at export resolution (not an upscale of
+  // the screen), then set it on white with a soft drop shadow that fits the
+  // frame. Same shadow recipe as the site: down, wide, ~35% black.
+  const b45 = document.getElementById('btnSave45');
+  if (b45) b45.addEventListener('click', () => {
+    const cv = document.getElementById('canvas');
+    const OW = 2160, OH = 2700;
+    const EDGE = 0.025;     // white kept between the shadow's visible edge and the frame
+    const BLUR = 0.07, DROP = 0.03;   // shadow blur & drop, as a share of the cabinet's long side
+    const SEEN = 0.6;       // the visible part of the blur (its faint tail reads as white)
+    window.__exportPx = 1; ETCH.render();
+    const totW = cv.width / 2, totH = cv.height / 2;            // cabinet incl. frame, in mm
+    // Size the cabinet + its whole shadow as one shape, as large as the
+    // margins allow. The shadow spreads BLUR on every side and drops DROP,
+    // so it reaches (BLUR-DROP) above, BLUR at the sides, (BLUR+DROP) below.
+    const L = Math.max(totW, totH);
+    const fit = Math.min(OW * (1 - 2*EDGE) / (totW + 2*SEEN*BLUR*L),
+                         OH * (1 - 2*EDGE) / (totH + 2*SEEN*BLUR*L + DROP*L));   // output px per mm
+    window.__exportPx = fit / 2; ETCH.render();
+    const out = document.createElement('canvas'); out.width = OW; out.height = OH;
+    const g = out.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, OW, OH);
+    const w = cv.width, h = cv.height, big = Math.max(w, h);
+    const up = Math.max(0, SEEN*BLUR - DROP) * big, down = (SEEN*BLUR + DROP) * big;
+    const x = (OW - w) / 2;
+    const y = (OH - (h + up + down)) / 2 + up;                   // centre the cabinet+shadow shape
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = big * BLUR; g.shadowOffsetY = big * DROP;
+    g.drawImage(cv, x, y);
+    g.restore();
+    window.__exportPx = null; ETCH.render();                    // back to the screen view
+    if (typeof refreshRealistic === 'function') refreshRealistic();
+    const a = document.createElement('a');
+    a.href = out.toDataURL('image/png');
+    a.download = `memory-palace-seed${seedTag()}-4x5.png`;
+    a.click();
   });
   const bPNG = document.getElementById('btnSavePNG');
   if (bPNG) bPNG.addEventListener('click', () => {
