@@ -3862,15 +3862,26 @@ function _rndFormat(){
     const v = document.getElementById(vid); if (v) v.textContent = fmt ? fmt(val) : val;
   };
   const mult = n => Math.round(n * 25.4);              // slider step = 25.4mm (2 units)
-  if (Math.random() < 0.33) {
-    // ~1 in 3: a SMALL cabinet — anywhere from one drawer to ~15 in.
-    // Sizes step like the sliders (from 76.2 / 60.96, in 25.4 mm steps).
-    set('compW', 'compW', Math.round((76.2  + 25.4 * Math.floor(Math.random()*12)) * 10) / 10, 'v-cw', Math.round); // 76–356
-    set('compH', 'compH', Math.round((60.96 + 25.4 * Math.floor(Math.random()*12)) * 100) / 100, 'v-ch', Math.round); // 61–340
-  } else {
-    set('compW', 'compW', mult(20 + Math.floor(Math.random()*22)), 'v-cw', Math.round); // ~508–1041
-    set('compH', 'compH', mult(28 + Math.floor(Math.random()*26)), 'v-ch', Math.round); // ~711–1346
-  }
+  // Format FAMILIES, weighted, so a run of ••• gives a collection with real
+  // range: tiny jewels, mid pieces, full cabinets, and the extremes (a single
+  // tall column, a long single row, a wide flat band). Sizes step like the
+  // sliders: width from 76.2 mm, height from 60.96 mm, in 25.4 mm steps.
+  const W = (lo, hi) => Math.round((76.2  + 25.4 * (lo + Math.floor(Math.random() * (hi - lo + 1)))) * 10) / 10;
+  const H = (lo, hi) => Math.round((60.96 + 25.4 * (lo + Math.floor(Math.random() * (hi - lo + 1)))) * 100) / 100;
+  const FAMILIES = [
+    ['small',  0.22, () => [W(0, 11),  H(0, 11)]],   // ~76–356 x 61–340
+    ['mid',    0.25, () => [W(11, 21), H(11, 22)]],  // ~356–610 x 340–620
+    ['large',  0.22, () => [mult(20 + Math.floor(Math.random()*22)), mult(28 + Math.floor(Math.random()*26))]],
+    ['column', 0.10, () => [W(0, 3),   H(18, 49)]],  // 1–2 drawers wide, ~520–1300 tall
+    ['row',    0.10, () => [W(17, 44), H(0, 3)]],    // ~508–1194 wide, 1–2 rows
+    ['wide',   0.11, () => [W(28, 44), H(8, 15)]],   // ~787–1194 x 264–442: a flat band
+  ];
+  let pick = Math.random(), fam = FAMILIES[0];
+  for (const f of FAMILIES) { pick -= f[1]; if (pick <= 0) { fam = f; break; } }
+  const [fw, fh] = fam[2]();
+  S.lastFamily = fam[0];
+  set('compW', 'compW', fw, 'v-cw', Math.round);
+  set('compH', 'compH', fh, 'v-ch', Math.round);
   set('maxWidthIn', 'maxWidthIn', _pickOf([101.6, 127]),         'v-mw', Math.round); // >min, so rows vary & fit
   set('rowHeightIn','rowHeightIn', _pickOf([60.96, 101.6]),      'v-rh', v => v);
 }
