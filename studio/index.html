@@ -295,7 +295,7 @@ textarea:focus { border-color: var(--accent); }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 28px;
+  padding: 28px 28px 128px;   /* bottom room for the history strip */
   gap: 10px;
   overflow: hidden;
   position: relative;
@@ -320,6 +320,22 @@ canvas { display: block; }
 .stats-bar span { color: var(--text); }
   .cab-id{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin:2px 0 16px;
     padding:0 26px;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+  /* history strip: recent cabinets + saved favourites */
+  #hist{position:absolute;left:0;right:0;bottom:0;height:104px;background:#fff;
+    display:flex;align-items:center;gap:12px;padding:0 16px 22px;z-index:5}
+  .hist-tabs{display:flex;flex-direction:column;gap:4px;flex:none}
+  .hist-tabs button{border:1px solid #e4e0ea;background:#fff;color:#8a8494;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap}
+  .hist-tabs button.on{color:#1d1726;border-color:#c47a45}
+  .hist-row{flex:1;display:flex;gap:8px;overflow-x:auto;align-items:center;height:100%;padding:6px 0}
+  /* every thumbnail is a 4:5 tile, like the Save 4:5 export */
+  .hist-item{position:relative;flex:none;width:52px;height:65px;cursor:pointer;background:#fff;
+    border:1px solid #eee;border-radius:3px}
+  .hist-item.cur{border-color:#c47a45;box-shadow:0 0 0 1px #c47a45}
+  .hist-item img{width:100%;height:100%;object-fit:contain;display:block}
+  .hist-item .star{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);font-size:12px;line-height:20px;padding:0;cursor:pointer;color:#bbb}
+  .hist-item .star.on{color:#c47a45}
+  .hist-empty{font-size:11px;color:#8a8494}
 </style>
 </head>
 <body>
@@ -394,7 +410,7 @@ canvas { display: block; }
       <option value="dark" selected>Small drawers where dark</option>
       <option value="light">Small drawers where light</option>
     </select>
-    <div style="font-size:10px;color:var(--muted)">Drawer widths and splits read the color field: dense where it's dark (or light), calm where it isn't. 0 = independent</div>
+    <div style="font-size:10px;color:var(--muted)">Row heights, drawer widths and splits read the color field: dense where it's dark (or light), calm where it isn't. 0 = independent</div>
 
     <div class="seed-row">
       <label>Seed</label>
@@ -450,7 +466,7 @@ canvas { display: block; }
     </div>
 
     <div class="row"><label>Quantize steps</label><span class="val" id="v-steps">6</span></div>
-    <input type="range" id="colorSteps" min="0" max="12" value="6" step="1">
+    <input type="range" id="colorSteps" min="0" max="24" value="6" step="1">
     <div style="font-size:10px;color:var(--muted)">0 = smooth · higher = discrete bands</div>
   </div>
 
@@ -512,6 +528,14 @@ canvas { display: block; }
     </select>
 
     <div class="row"><label>Knob placement</label></div>
+    <div class="row"><label>Anomaly</label></div>
+    <select id="anomaly">
+      <option value="none" selected>None</option>
+      <option value="color">One drawer off palette</option>
+      <option value="knob">One odd knob</option>
+      <option value="both">One secret drawer (both)</option>
+    </select>
+
     <select id="knobPlace">
       <option value="center" selected>Centered</option>
       <option value="drift">Drift — slide toward the dark</option>
@@ -647,6 +671,13 @@ canvas { display: block; }
     <canvas id="canvas"></canvas>
   </div>
   <div class="stats-bar" id="stats" style="display:none"></div>
+  <div id="hist">
+    <div class="hist-tabs">
+      <button id="histRecent" class="on">Recent</button>
+      <button id="histSaved">&#9733; Saved</button>
+    </div>
+    <div class="hist-row" id="histRow"></div>
+  </div>
 </main>
 
 <script>window.MEMORY_PALACE_COMP={
@@ -3002,6 +3033,7 @@ const S = {
   jitter: 1.0,
   fieldLink: 0,      // 0–1: how strongly drawer widths & splits follow the color field
   fieldDir: 'dark',
+  anomaly: 'none',  // none | color | knob | both: one deliberate exception per cabinet
   spanChance: 0,     // 0–1: per row, chance one drawer continues down through the next row  // 'dark' = small/dense drawers where the field is at the palette's start
   colorMode: 'grid',
   gradAngle: 135,
@@ -3161,11 +3193,23 @@ function genRowHeights(rng) {
     const fits = ROW_HEIGHTS.filter(h => h <= rem);
     const t = 1 - rem / S.compH; // 0 at top → 1 at bottom
     let h;
+    const r0 = rng();   // always drawn, so the random stream never shifts
     switch (S.rowHeightMode) {
       case 'alternate': h = (i % 2 === 0) ? fits[0] : fits[fits.length-1]; break;
       case 'grad-down': h = fits[Math.min(fits.length-1, Math.floor(t * fits.length))]; break;
       case 'grad-up':   h = fits[Math.min(fits.length-1, Math.floor((1-t) * fits.length))]; break;
-      default:          h = fits[Math.floor(rng() * fits.length)]; // random
+      default:          h = fits[Math.floor(r0 * fits.length)]; // random
+    }
+    // Structure follows color: dense bands get short rows, calm bands tall ones.
+    if (S.fieldLink > 0 && fits.length > 1 && hash01(i, S.seed, 41) < S.fieldLink) {
+      const top = (S.compH - rem) / S.compH;
+      const score = hh => {            // density across the band this row would cover
+        const ny = Math.min(1, top + hh / 2 / S.compH);
+        let d = 0; for (let x = 0; x < 9; x++) d += fieldDensity((x + 0.5) / 9, ny);
+        return Math.max(0, Math.min(1, (d / 9 - 0.5) * 2.2 + 0.5));
+      };
+      const want = hh => (1 - score(hh)) * (fits.length - 1);
+      h = fits.reduce((b, c, j) => Math.abs(j - want(c)) < Math.abs(fits.indexOf(b) - want(b)) ? c : b, fits[0]);
     }
     hs.push(h);
     rem -= h;
@@ -3391,6 +3435,8 @@ function buildCells(W, H) {
     });
     py += row.h * uh;
   });
+  if (S.anomaly && S.anomaly !== 'none' && cells.length)
+    cells[Math.floor(hash01(S.seed, 17, 3) * cells.length)].anom = true;
   return cells;
 }
 
@@ -3499,6 +3545,14 @@ function paletteView() {
   if (!rot) return S.activePalette;
   const N = S.activePalette.length;
   return S.activePalette.map((_, i) => S.activePalette[(i - rot + N) % N]);
+}
+
+// The anomaly's color: the complement of the palette's average, kept vivid.
+function anomColor() {
+  const c = [0, 0, 0];
+  S.activePalette.forEach(h => hexToRgb(h).forEach((v, i) => c[i] += v / S.activePalette.length));
+  const [h, s, l] = rgbToHsl(...c);
+  return hslToHex(h + 180, Math.max(s, 55), Math.min(60, Math.max(38, 100 - l)));
 }
 
 function cellColor(cell, W, H) {
@@ -3770,6 +3824,10 @@ document.getElementById('rowHeightMode').addEventListener('change', e => {
 wire('splitChance', 'splitChance', 'split', v => Math.round(v * 100) + '%');
 wire('fieldLink', 'fieldLink', 'flink', v => Math.round(v * 100) + '%');
 wire('spanChance', 'spanChance', 'span', v => Math.round(v * 100) + '%');
+document.getElementById('anomaly').addEventListener('change', e => {
+  S.anomaly = e.target.value;
+  render();
+});
 document.getElementById('fieldDir').addEventListener('change', e => {
   S.fieldDir = e.target.value;
   go();
@@ -3843,6 +3901,8 @@ function _rndStrategies(){
   rr('spanChance',  'spanChance',  _pickOf([0, 0, 0.2, 0.35, 0.5]),             'v-span',   x => Math.round(x*100)+'%');
   set('fieldDir',      _pickOf(['dark','light']), 'fieldDir');
   set('knobPlace',     _pickOf(['center','center','drift','swirl','toward','away','scatter']), 'knobPlace');
+  // The anomaly turns up rarely: about one cabinet in ten.
+  set('anomaly',       Math.random() < 0.1 ? _pickOf(['color','knob','both']) : 'none', 'anomaly');
   const ro = document.getElementById('opts-radial'); if (ro) ro.style.display = S.colorBy === 'radial' ? 'flex' : 'none';
 }
 function _rndPalette(){
@@ -4085,7 +4145,9 @@ window.addEventListener('resize', () => { layout(); render(); });
 // from one source of truth.
 function buildCompositionData() {
   // Nearest palette stop (1-based) for a rendered hex — the "paint number"
+  const ODD = S.anomaly && S.anomaly !== 'none' ? anomColor() : null;
   const nearestStop = hex => {
+    if (hex === ODD) return S.activePalette.length + 1;   // the anomaly's own paint
     const c = hexToRgb(hex);
     let best = 0, bd = Infinity;
     S.activePalette.forEach((p, i) => {
@@ -4102,9 +4164,17 @@ function buildCompositionData() {
   const REV = 1.2;
   const KNOB_EDGE = 3;   // mm of face kept clear between knob cap and edge
   const specOf = (cell, faceWmm, faceHmm) => {
-    const faceHex = cellColor(cell, canvas.width, canvas.height);
-    const pullHex = pullColor(cell, canvas.width, canvas.height);
-    const ps = knobSize(cell, canvas.width, canvas.height, faceWmm, faceHmm);
+    let faceHex = cellColor(cell, canvas.width, canvas.height);
+    let pullHex = pullColor(cell, canvas.width, canvas.height);
+    let ps = knobSize(cell, canvas.width, canvas.height, faceWmm, faceHmm);
+    if (cell.anom) {                       // the one exception
+      const A = S.anomaly;
+      if (A === 'color' || A === 'both') faceHex = anomColor();
+      if (A === 'knob') pullHex = anomColor();
+      if (A === 'knob' || A === 'both') {   // the largest knob the face can take
+        ps = 1; KNOB_CAPS.forEach((c, i) => { if (c <= 0.6 * Math.min(faceWmm, faceHmm)) ps = i + 1; });
+      }
+    }
     const spec = {
       face_color: nearestStop(faceHex), face_hex: faceHex,
       pull_color: nearestStop(pullHex), pull_hex: pullHex,
@@ -4156,9 +4226,9 @@ function buildCompositionData() {
     meta: { generator: 'cabinet-visualizer', seed: S.seed,
             color_seed: S.colorSeed, color_by: S.colorBy,
             pattern: S.layoutPattern,
-            field_link: S.fieldLink, field_dir: S.fieldDir, span_chance: S.spanChance },
+            field_link: S.fieldLink, field_dir: S.fieldDir, span_chance: S.spanChance, anomaly: S.anomaly },
     // Paint key: color 1..6 → hex. Faces & knobs reference these numbers.
-    palette: Object.fromEntries(S.activePalette.map((hex, i) => [i + 1, hex])),
+    palette: Object.fromEntries([...S.activePalette, ...(ODD ? [ODD] : [])].map((hex, i) => [i + 1, hex])),
     shell_color: S.shellColor,
     cabinet: {
       width_mm: Math.round(S.compW),
@@ -4253,6 +4323,7 @@ async function bootLoad(){
       setC('spanChance',  0, 'spanChance',  'v-span',   x => Math.round(x*100)+'%');
       setC('fieldDir',    'dark', 'fieldDir');
       setC('knobPlace',   'center', 'knobPlace');
+      setC('anomaly',     'none',   'anomaly');
       setC('colorSteps',  6, 'colorSteps',  'v-steps',  x => x);
       layout(); render();
     }
@@ -4560,7 +4631,8 @@ function render(){
   // Fit to BOTH axes so wide cabinets (>~800mm) don't clip off the pane.
   const _sb=document.querySelector('.sidebar');
   const _avW=window.innerWidth-(_sb?_sb.offsetWidth:320)-56;
-  const px=window.__exportPx || Math.min(1.1,(innerHeight-60)/totH,_avW/totW);
+  const _hist=document.getElementById('hist'), _histH=_hist?_hist.offsetHeight:0;
+  const px=window.__exportPx || Math.min(1.1,(innerHeight-60-_histH)/totH,_avW/totW);
   cv.width=totW*px*2; cv.height=totH*px*2;
   cv.style.width=totW*px+'px'; cv.style.height=totH*px+'px';
   const g=cv.getContext('2d'); g.scale(2*px,2*px);
@@ -5006,6 +5078,108 @@ return { render, loadJSON, buildSVG, calibrateField,
   });
   // Render-default entry is owned by bootLoad() so it fires after the real
   // composition is imported (see init).
+})();
+</script>
+
+<script>
+// ── History + Saved ──────────────────────────────────────────
+// Every time the render settles, snapshot the whole state (composer S, etch
+// S, every sidebar control) with a thumbnail. Click a thumbnail to restore it
+// exactly; ★ keeps it in Saved. Stored in this browser (localStorage) — a
+// personal convenience, so everything works even if storage is unavailable.
+(function(){
+  const KEY='mp-studio-history', MAX=24;
+  let data={recent:[],saved:[]}, view='recent', curKey='', timer=null, quiet=false;
+  try{ const d=JSON.parse(localStorage.getItem(KEY)); if(d&&Array.isArray(d.recent)) data=d; }catch(e){}
+  const persist=()=>{ try{ localStorage.setItem(KEY, JSON.stringify(data)); }catch(e){} };
+
+  const aside=document.querySelector('aside.sidebar');
+  function controlsState(){
+    const c={}, t={};
+    aside.querySelectorAll('input[id],select[id]').forEach(el=>{ c[el.id]= el.type==='checkbox'?el.checked:el.value; });
+    aside.querySelectorAll('.val[id]').forEach(el=>{ t[el.id]=el.textContent; });
+    return {c,t};
+  }
+  function stateKey(){
+    const s={...S}; delete s.lastFamily;
+    return JSON.stringify([s, ETCH.S]);
+  }
+  function thumb(){   // a tiny 4:5 tile: the cabinet centred on white, with its shadow
+    const cv=document.getElementById('canvas'); if(!cv.width) return '';
+    const W=160, H=200, o=document.createElement('canvas'); o.width=W; o.height=H;
+    const g=o.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,W,H);
+    const k=Math.min(W*0.78/cv.width, H*0.74/cv.height), w=cv.width*k, h=cv.height*k;
+    g.shadowColor='rgba(0,0,0,0.3)'; g.shadowBlur=Math.max(w,h)*0.06; g.shadowOffsetY=Math.max(w,h)*0.025;
+    g.drawImage(cv,(W-w)/2,(H-h)/2-H*0.015,w,h);
+    return o.toDataURL('image/jpeg',0.82);
+  }
+  function capture(){
+    if(quiet){ quiet=false; return; }
+    const key=stateKey(); curKey=key;
+    if(!data.recent.some(e=>e.key===key) && !(data.recent[0] && data.recent[0].key===key)){
+      data.recent.unshift({key, S:JSON.stringify(S), E:JSON.stringify(ETCH.S), ui:controlsState(), img:thumb(), t:Date.now()});
+      data.recent=data.recent.slice(0,MAX); persist();
+    }
+    draw();
+  }
+  // Run after every render (the renderer is called through this name).
+  // Button presses (• •• •••, new seed) save the moment they finish drawing,
+  // so rapid rerolls are all kept; slider drags save once you let go.
+  let now=true;                                   // the opening cabinet counts as a press
+  const _refresh=refreshRealistic;
+  refreshRealistic=function(){
+    _refresh(); clearTimeout(timer);
+    if(now){ now=false; capture(); } else timer=setTimeout(capture,900);
+  };
+  const _randomize=randomize;
+  randomize=function(t){ now=true; return _randomize(t); };
+  ['btnRandom','btnRandomLayout','btnColorSeed'].forEach(id=>
+    document.getElementById(id)?.addEventListener('click',()=>{ now=true; }, true));
+  // if the opening render happened before this script ran, record it anyway
+  setTimeout(()=>{ if(!curKey) capture(); }, 2500);
+
+  function restore(e){
+    const s=JSON.parse(e.S), et=JSON.parse(e.E);
+    const apply=()=>{
+      Object.keys(s).forEach(k=>{ if(k!=='imported') S[k]=s[k]; });
+      Object.assign(ETCH.S, et);
+      Object.entries(e.ui.c).forEach(([id,v])=>{ const el=document.getElementById(id); if(!el) return; if(el.type==='checkbox') el.checked=v; else el.value=v; });
+      Object.entries(e.ui.t).forEach(([id,v])=>{ const el=document.getElementById(id); if(el) el.textContent=v; });
+      // dependent panels and buttons
+      const ro=document.getElementById('opts-radial'); if(ro) ro.style.display=S.colorBy==='radial'?'flex':'none';
+      const og=document.getElementById('opts-gradient'); if(og) og.style.display=S.colorMode==='gradient'?'':'none';
+      document.getElementById('btn-gradient')?.classList.toggle('active', S.colorMode==='gradient');
+      document.getElementById('btn-grid')?.classList.toggle('active', S.colorMode!=='gradient');
+      ['etchFill','posterScale'].forEach(id=>document.getElementById(id)?.dispatchEvent(new Event('change')));
+      if(typeof renderSwatches==='function') renderSwatches(S.activePalette);
+      if(typeof showPaletteMode==='function') showPaletteMode();
+      quiet=true; curKey=e.key;
+      if(s.imported){ layout(); render(); } else go();
+      draw();
+    };
+    if(s.imported){ Promise.resolve(bootLoad()).then(apply); } else apply();
+  }
+
+  const row=document.getElementById('histRow');
+  function draw(){
+    const list=view==='saved'?data.saved:data.recent;
+    row.innerHTML='';
+    if(!list.length){ row.innerHTML=`<span class="hist-empty">${view==='saved'?'Star a cabinet to keep it here.':'Cabinets you make will appear here.'}</span>`; return; }
+    list.forEach(e=>{
+      const d=document.createElement('div'); d.className='hist-item'+(e.key===curKey?' cur':'');
+      const im=document.createElement('img'); im.src=e.img; im.alt=''; im.title='Restore this cabinet'; d.appendChild(im);
+      const st=document.createElement('button'); const isSaved=data.saved.some(x=>x.key===e.key);
+      st.className='star'+(isSaved?' on':''); st.textContent=isSaved?'★':'☆'; st.title=isSaved?'Remove from Saved':'Save';
+      st.onclick=ev=>{ ev.stopPropagation();
+        if(isSaved) data.saved=data.saved.filter(x=>x.key!==e.key); else data.saved.unshift(e);
+        persist(); draw(); };
+      d.appendChild(st); d.onclick=()=>restore(e); row.appendChild(d);
+    });
+  }
+  const tabs={recent:document.getElementById('histRecent'), saved:document.getElementById('histSaved')};
+  Object.entries(tabs).forEach(([k,b])=>b.addEventListener('click',()=>{ view=k; tabs.recent.classList.toggle('on',k==='recent'); tabs.saved.classList.toggle('on',k==='saved'); draw(); }));
+  draw();
+  window.__hist={capture, restore, get data(){return data;}};   // for testing
 })();
 </script>
 </body>
