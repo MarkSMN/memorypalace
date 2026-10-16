@@ -364,6 +364,21 @@ function atlas(bump){
   const t=new THREE.CanvasTexture(c); if(!bump) t.colorSpace=THREE.SRGBColorSpace;
   t.anisotropy=R.capabilities.getMaxAnisotropy(); return t;
 }
+// A drawer front with a small rounded edge, so the key light catches the
+// top-left edges and the bottom-right ones fall into shade, as the knobs do.
+const BEVEL=1.4;   // mm — wide enough to read as a lit or shaded line at full-cabinet view
+function frontGeo(w,h){
+  const b=BEVEL, sh=new THREE.Shape(), x=-w/2+b, y=-h/2+b, W=w-2*b, H=h-2*b;
+  sh.moveTo(x,y); sh.lineTo(x+W,y); sh.lineTo(x+W,y+H); sh.lineTo(x,y+H); sh.lineTo(x,y);
+  const g=new THREE.ExtrudeGeometry(sh,{depth:MDF-2*b,bevelEnabled:true,bevelThickness:b,bevelSize:b,bevelSegments:3,curveSegments:1});
+  g.translate(0,0,b); g.computeVertexNormals();
+  // edge tint: up-left facing edges lighter, down-right darker (the flat game's edge lines)
+  const n=g.attributes.normal, c=new Float32Array(n.count*3);
+  for(let i=0;i<n.count;i++){ const x=n.getX(i), y=n.getY(i), m=Math.hypot(x,y);
+    const k=m<0.05?1:1+0.42*(-0.707*x+0.707*y)/m;   // which way the edge faces, not how steeply
+    c[i*3]=c[i*3+1]=c[i*3+2]=k; }
+  g.setAttribute('color',new THREE.BufferAttribute(c,3)); return g;
+}
 function slab(w,h,d,x,y,z){ const g=new THREE.BoxGeometry(w,h,d); g.translate(x,y,z); return g; }
 // tee knob (pull-v1.scad profile), axis along z, cap face outward
 const KG={};
@@ -414,16 +429,18 @@ function build3D(){
     grp.position.set(cx,cy,0);
     const body=new THREE.Mesh(bodyGeo(f.hitw-2*WALL-2*CLR,f.hith-2*WALL-2*CLR),bodyMat);
     // front: its own box, UVs read the face's patch of the etched texture
-    const fg=new THREE.BoxGeometry(f.w,f.h,MDF); fg.translate(0,0,MDF/2);
+    const fg=frontGeo(f.w,f.h);
     const pos=fg.attributes.position, uv=fg.attributes.uv;
     for(let i=0;i<pos.count;i++) uv.setXY(i,(cx+pos.getX(i)+cabW/2)/cabW,(cy+pos.getY(i)+cabH/2)/cabH);
-    const fm=new THREE.MeshStandardMaterial({map:tex,bumpMap:bump,bumpScale:-0.6,roughness:0.82});
-    const front=new THREE.Mesh(fg,fm);
+    const fm=new THREE.MeshStandardMaterial({map:tex,bumpMap:bump,bumpScale:-0.6,roughness:0.66});   // a little sheen, as the painted faces have
+    // the bevelled edge: lit where it faces the key light (up-left), shaded where it faces away
+    const em=fm.clone(); em.roughness=0.5; em.vertexColors=true;
+    const front=new THREE.Mesh(fg,[fm,em]);   // extrude groups: 0 = face, 1 = edges
     const km=new THREE.MeshStandardMaterial({color:f.phex,roughness:0.45,side:THREE.DoubleSide});
     const knob=new THREE.Mesh(knobGeo(f.ps),km); knob.position.z=MDF;
     for(const m of [body,front,knob]){ m.castShadow=m.receiveShadow=true; grp.add(m); }
     scene.add(grp);
-    f.g={grp,fm,km,knob,out:0,v:0,goal:0,dark:0,darkGoal:0,c0:new THREE.Color(f.phex)};
+    f.g={grp,fm,em,km,knob,out:0,v:0,goal:0,dark:0,darkGoal:0,c0:new THREE.Color(f.phex)};
   }
 }
 // setup mode: objects shown on the fronts
@@ -457,7 +474,7 @@ function tick(now){
   for(const f of faces){ const g=f.g; if(!g) continue;
     if(g.out!==g.goal||g.v){ spring(g,dt); g.grp.position.z=g.out*TUNE.pull; moving=true; }
     if(g.dark!==g.darkGoal){ g.dark=ease(g.dark,g.darkGoal,dt,7);
-      g.fm.color.copy(WHITE).lerp(DARK,g.dark); g.km.color.copy(g.c0).lerp(DARK,g.dark); moving=true; }
+      g.fm.color.copy(WHITE).lerp(DARK,g.dark); g.em.color.copy(g.fm.color); g.km.color.copy(g.c0).lerp(DARK,g.dark); moving=true; }
   }
   if(dirty||moving){ draw(); dirty=false; }
   if(moving) raf=requestAnimationFrame(tick);
@@ -742,6 +759,9 @@ build3D();
 for(let k=0;k<93;k++) img(k); img('tube');   // preload: no drawer opens empty
 if(SETUP){ document.getElementById('tubeId').textContent=tubeId; if(tubeId!==TUBE_DEFAULT) setTube(tubeId); }
 render();
+const MAG=0;   // private: magnify the board to inspect detail
+if(MAG>1){ zoom=MAG; scroller.classList.add('zoomed'); render();
+  scroller.scrollLeft=(scroller.scrollWidth-scroller.clientWidth)/2; scroller.scrollTop=(scroller.scrollHeight-scroller.clientHeight)*0.35; }
 if(FINALE){   // the whole cabinet found and black, then the solve plays
   faces.forEach(f=>f.matched=true); found=93; moves=93; startTimer();
   document.getElementById('s-found').textContent=93; render();
