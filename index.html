@@ -40,7 +40,7 @@
   #scroller.zoomed{display:block;overflow:auto;-webkit-overflow-scrolling:touch}
   /* the 3D cabinet: one full-window WebGL layer behind the page, so its
      shadow can fall onto the white wall past the cabinet's edge */
-  #gl{position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0;pointer-events:none}
+  #gl{position:fixed;left:0;top:0;display:block;z-index:0;pointer-events:none}   /* sized in JS from the real visible window */
   header,footer,.stage{position:relative;z-index:1}
   #surface{display:block;flex:none;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   #zoomOut{position:absolute;right:14px;bottom:14px;z-index:6;display:none;box-shadow:0 4px 14px rgba(0,0,0,.15)}
@@ -463,12 +463,13 @@ function tick(now){
   if(moving) raf=requestAnimationFrame(tick);
 }
 // aim the camera so the cabinet lands exactly on #surface's rectangle
+let glSize='';
 function draw(){
   const r=cv.getBoundingClientRect(), W=innerWidth, H=innerHeight;
   if(!r.width) return;
   const k=r.width/totW, sx=r.left+r.width/2, sy=r.top+r.height/2;     // px per mm, cabinet centre on screen
   const fullW=2*Math.max(sx,W-sx)+2, fullH=2*Math.max(sy,H-sy)+2;
-  if(glc.width!==Math.round(W*R.getPixelRatio())||glc.height!==Math.round(H*R.getPixelRatio())) R.setSize(W,H,false);
+  if(glSize!==W+'x'+H){ R.setSize(W,H); glSize=W+'x'+H; }   // CSS size too: phones' 100vh is not the visible height
   cam.fov=2*Math.atan(fullH/k/2/CAM_D)*180/Math.PI; cam.aspect=fullW/fullH;
   cam.setViewOffset(fullW,fullH,fullW/2-sx,fullH/2-sy,W,H);
   R.render(scene,cam);
@@ -499,6 +500,8 @@ function render(){
   kick();
 }
 window.addEventListener('resize',()=>{ render(); layoutCards(); });
+// phone browsers slide their toolbars in and out without always firing resize
+if(window.visualViewport) visualViewport.addEventListener('resize',()=>{ render(); layoutCards(); });
 
 // ═══ phones: first tap zooms in so drawers are thumb-sized ═══
 const TOUCH=matchMedia('(pointer:coarse)').matches;
