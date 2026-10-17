@@ -27,7 +27,10 @@ export default async function middleware(request) {
 
   if (request.method === 'POST') {
     const form = await request.formData();
-    if (String(form.get('password') || '') === want) {
+    // capitals and stray spaces don't matter: the game shows the word as E-X-T-R-A-S,
+    // and phones capitalise the first letter on their own
+    const said = String(form.get('password') || '').trim().toLowerCase();
+    if (said === want.trim().toLowerCase()) {
       return new Response(null, {
         status: 303,
         headers: {
