@@ -333,11 +333,11 @@ try{ if(TUNING) Object.assign(TUNE, JSON.parse(localStorage.getItem('mp-tune'))|
 const glc=document.getElementById('gl');
 const R=new THREE.WebGLRenderer({canvas:glc, antialias:true});
 R.setPixelRatio(Math.min(2,devicePixelRatio||1));
-R.outputColorSpace=THREE.SRGBColorSpace; R.toneMapping=THREE.ACESFilmicToneMapping;
+R.outputColorSpace=THREE.SRGBColorSpace; R.toneMapping=THREE.NoToneMapping;   // true paint: the film curve greyed the lavenders
 R.shadowMap.enabled=true; R.shadowMap.type=THREE.PCFSoftShadowMap;
 const scene=new THREE.Scene(); scene.background=new THREE.Color('#ffffff');
-scene.add(new THREE.HemisphereLight(0xffffff,0xcfc8d8,0.75));
-const key=new THREE.DirectionalLight(0xfff4ea,2.4);          // top-left key, as in the animator
+scene.add(new THREE.HemisphereLight(0xffffff,0xcfc8d8,1.38));   // with the key at 2.7: a face turned to you shows its paint (measured ≈1.00×)
+const key=new THREE.DirectionalLight(0xfff4ea,2.7);          // top-left key, as in the animator
 key.position.set(-700,900,1300); key.castShadow=true;
 key.shadow.mapSize.set(2048,2048); key.shadow.bias=-0.0005; key.shadow.normalBias=0.4; key.shadow.radius=3;
 Object.assign(key.shadow.camera,{left:-560,right:560,top:640,bottom:-640,near:100,far:4000});
@@ -352,16 +352,25 @@ cam.position.set(0,0,CAM_D);
 const WX=x=>x-cabW/2, WY=y=>cabH/2-y;
 
 // etched fronts: one texture for the whole face, drawn from the same flow lines
+let TEXK=4;   // texture pixels per mm — matched to the screen (see fitTextures)
 function atlas(bump){
-  const k=3, c=document.createElement('canvas'); c.width=Math.round(cabW*k); c.height=Math.round(cabH*k);
+  // 4 px/mm, and the bump lines softened, so the etch shades smoothly instead of
+  // breaking into jagged stair-steps at large / high-density screen sizes
+  const k=TEXK, c=document.createElement('canvas'); c.width=Math.round(cabW*k); c.height=Math.round(cabH*k);
   const g=c.getContext('2d'); g.scale(k,k);
   g.fillStyle=bump?'#fff':'#888'; g.fillRect(0,0,cabW,cabH);
-  g.lineWidth=bump?0.45:0.35; g.lineJoin='round';
+  g.lineWidth=0.35; g.lineJoin='round';
+  const carve=0.16;   // half the groove's width, mm
   for(const f of faces){
-    g.fillStyle=bump?'#fff':f.hex; g.fillRect(f.x,f.y,f.w,f.h);
-    g.strokeStyle=bump?'#000':darken(f.hex,S.etchDark); g.stroke(f.etch);
+    // `bump` = the neutral version (white, same groove) that recoloured drawers wear, tinted
+    const col=bump?'#f4f4f4':f.hex;   // near-white, so the tint keeps its true paint value
+    g.fillStyle=col; g.fillRect(f.x,f.y,f.w,f.h);
+    // the flat game's carved groove: a lit wall up-left, a shadowed wall down-right
+    g.save(); g.translate(-carve,-carve); g.strokeStyle=bump?'#ffffff':LIT(col,Math.max(6,S.etchDark*0.55)); g.stroke(f.etch); g.restore();
+    g.save(); g.translate(carve,carve);   g.strokeStyle=darken(col,S.etchDark);                                 g.stroke(f.etch); g.restore();
   }
-  const t=new THREE.CanvasTexture(c); if(!bump) t.colorSpace=THREE.SRGBColorSpace;
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  t.generateMipmaps=false; t.minFilter=THREE.LinearFilter;   // drawn at screen size: one texel = one pixel, nothing to shrink
   t.anisotropy=R.capabilities.getMaxAnisotropy(); return t;
 }
 // A drawer front with a small rounded edge, so the key light catches the
@@ -403,10 +412,11 @@ function bodyGeo(w,h){   // the printed drawer box: open top, front is the MDF f
 // shells read as the grout between drawers: the flat game's deep shadow value, not lit paint
 const shellMat=new THREE.MeshStandardMaterial({color:darken(FRAME,66),roughness:1});
 const bodyMat=new THREE.MeshStandardMaterial({color:FRAME,roughness:0.85});   // drawer boxes, seen when one is open
-const DARK=new THREE.Color('#0a080d'), WHITE=new THREE.Color('#ffffff');
+const DARK=new THREE.Color('#050407'),   // found drawers: near-black, matte (≈ the flat game's #0a080d on screen)
+      WHITE=new THREE.Color('#ffffff');
 let tex=null, bump=null;
 function build3D(){
-  tex=atlas(false); bump=atlas(true);
+  tex=atlas(false);
   // shells: one per drawer slot, merged into a single mesh (they never move)
   const sg=[];
   for(const f of faces){
@@ -432,11 +442,13 @@ function build3D(){
     const fg=frontGeo(f.w,f.h);
     const pos=fg.attributes.position, uv=fg.attributes.uv;
     for(let i=0;i<pos.count;i++) uv.setXY(i,(cx+pos.getX(i)+cabW/2)/cabW,(cy+pos.getY(i)+cabH/2)/cabH);
-    const fm=new THREE.MeshStandardMaterial({map:tex,bumpMap:bump,bumpScale:-0.6,roughness:0.66});   // a little sheen, as the painted faces have
+    // groove painted into the texture (no bump: it rippled into moiré); a little sheen,
+    // in a physical material so the gloss can fade to matte when the drawer goes dark
+    const fm=new THREE.MeshPhysicalMaterial({map:tex,roughness:0.66});
     // the bevelled edge: lit where it faces the key light (up-left), shaded where it faces away
     const em=fm.clone(); em.roughness=0.5; em.vertexColors=true;
     const front=new THREE.Mesh(fg,[fm,em]);   // extrude groups: 0 = face, 1 = edges
-    const km=new THREE.MeshStandardMaterial({color:f.phex,roughness:0.45,side:THREE.DoubleSide});
+    const km=new THREE.MeshPhysicalMaterial({color:f.phex,roughness:0.45,side:THREE.DoubleSide});
     const knob=new THREE.Mesh(knobGeo(f.ps),km); knob.position.z=MDF;
     for(const m of [body,front,knob]){ m.castShadow=m.receiveShadow=true; grp.add(m); }
     scene.add(grp);
@@ -474,7 +486,9 @@ function tick(now){
   for(const f of faces){ const g=f.g; if(!g) continue;
     if(g.out!==g.goal||g.v){ spring(g,dt); g.grp.position.z=g.out*TUNE.pull; moving=true; }
     if(g.dark!==g.darkGoal){ g.dark=ease(g.dark,g.darkGoal,dt,7);
-      g.fm.color.copy(WHITE).lerp(DARK,g.dark); g.em.color.copy(g.fm.color); g.km.color.copy(g.c0).lerp(DARK,g.dark); moving=true; }
+      g.fm.color.copy(WHITE).lerp(DARK,g.dark); g.em.color.copy(g.fm.color); g.km.color.copy(g.c0).lerp(DARK,g.dark);
+      g.fm.specularIntensity=g.em.specularIntensity=g.km.specularIntensity=1-g.dark;   // found drawers go matte black, not glossy grey
+      moving=true; }
   }
   if(dirty||moving){ draw(); dirty=false; }
   if(moving) raf=requestAnimationFrame(tick);
@@ -489,8 +503,20 @@ function draw(){
   if(glSize!==W+'x'+H){ R.setSize(W,H); glSize=W+'x'+H; }   // CSS size too: phones' 100vh is not the visible height
   cam.fov=2*Math.atan(fullH/k/2/CAM_D)*180/Math.PI; cam.aspect=fullW/fullH;
   cam.setViewOffset(fullW,fullH,fullW/2-sx,fullH/2-sy,W,H);
+  screenK=k*R.getPixelRatio();                              // device pixels per mm on the faces
   R.render(scene,cam);
 }
+// Repaint the etched texture at the board's on-screen resolution (one texel =
+// one pixel), so the lines stay crisp instead of shrinking into blur and moiré.
+let screenK=0, fitT=0;
+function fitTextures(){
+  if(!screenK||!tex) return; const k=Math.min(6,Math.max(1.5,screenK));
+  if(Math.abs(k-TEXK)/TEXK<0.04) return;
+  TEXK=k; const t2=atlas(false); tex.dispose(); tex=t2;
+  faces.forEach(f=>{ f.g.fm.map=tex; f.g.em.map=tex; f.g.fm.needsUpdate=f.g.em.needsUpdate=true; });
+  kick();
+}
+function refit(){ clearTimeout(fitT); fitT=setTimeout(fitTextures,250); }
 function setOpen(f,on){ f.g.goal=on?1:0; kick(); }
 
 function render(){
@@ -514,9 +540,9 @@ function render(){
     if(SETUP){ showObj(f,showAll&&!f.matched||f===picked);
       f.g.fm.emissive.set(f===picked?0x8a4a1c:(f.obj==='tube'?0x3a2410:0x000000)); }
   }
-  kick();
+  kick(); refit();
 }
-window.addEventListener('resize',()=>{ render(); layoutCards(); });
+window.addEventListener('resize',()=>{ render(); layoutCards(); refit(); });
 // phone browsers slide their toolbars in and out without always firing resize
 if(window.visualViewport) visualViewport.addEventListener('resize',()=>{ render(); layoutCards(); });
 
@@ -756,6 +782,7 @@ const lines=genFlow();
 faces.forEach(f=>f.etch=etchPath(lines,f));
 fill();
 build3D();
+setTimeout(fitTextures,300);   // once the first frame has measured the board
 for(let k=0;k<93;k++) img(k); img('tube');   // preload: no drawer opens empty
 if(SETUP){ document.getElementById('tubeId').textContent=tubeId; if(tubeId!==TUBE_DEFAULT) setTube(tubeId); }
 render();
@@ -763,8 +790,17 @@ const MAG=0;   // private: magnify the board to inspect detail
 if(MAG>1){ zoom=MAG; scroller.classList.add('zoomed'); render();
   scroller.scrollLeft=(scroller.scrollWidth-scroller.clientWidth)/2; scroller.scrollTop=(scroller.scrollHeight-scroller.clientHeight)*0.35; }
 if(FINALE){   // the whole cabinet found and black, then the solve plays
-  faces.forEach(f=>f.matched=true); found=93; moves=93; startTimer();
-  document.getElementById('s-found').textContent=93; render();
+  // ?moves=800&time=30:12 sets what the win screen shows (for screenshots)
+  const q=new URLSearchParams(location.search);
+  faces.forEach(f=>f.matched=true); found=93; moves=+q.get('moves')||93;
+  document.getElementById('s-found').textContent=93;
+  document.getElementById('s-moves').textContent=moves;
+  // plain digits get their colons: 3012 → 30:12, 10245 → 1:02:45
+  let tm=(q.get('time')||'0:00').trim();
+  if(/^\d{3,6}$/.test(tm)){ const d=tm.padStart(tm.length>4?6:4,'0');
+    tm=d.length===6?`${+d.slice(0,2)}:${d.slice(2,4)}:${d.slice(4)}`:`${+d.slice(0,2)}:${d.slice(2)}`; }
+  document.getElementById('s-time').textContent=tm;
+  render();
   setTimeout(win,1200);
 }
 </script>
