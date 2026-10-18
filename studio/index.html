@@ -3,6 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+// Pocket mode: phones get the cabinet centre stage and a small toolbar; the full
+// studio below is untouched. ?pocket forces it (for testing), ?full opts out.
+(function(){ var q=new URLSearchParams(location.search), ss=window.sessionStorage;
+  try{ if(q.has('full')) ss.setItem('mp-full','1'); if(q.has('pocket')) ss.removeItem('mp-full'); }catch(e){}
+  var full=false; try{ full=ss.getItem('mp-full')==='1'; }catch(e){}
+  var phone=matchMedia('(max-width: 760px)').matches&&matchMedia('(pointer: coarse)').matches;
+  if(q.has('pocket')||(phone&&!full)) document.documentElement.classList.add('pocket');
+})();
+</script>
 <title>Memory Palace</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -336,6 +346,32 @@ canvas { display: block; }
     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);font-size:12px;line-height:20px;padding:0;cursor:pointer;color:#bbb}
   .hist-item .star.on{color:#c47a45}
   .hist-empty{font-size:11px;color:#8a8494}
+</style>
+<style>
+/* ── pocket mode (phones) ─────────────────────────────────────────── */
+html.pocket body{background:#fff;color:#1d1726;overflow:hidden;height:100%}
+html.pocket .sidebar, html.pocket #hist, html.pocket .stats-bar{display:none!important}
+html.pocket .main{position:fixed;left:0;right:0;top:64px;bottom:96px;padding:0;display:flex;align-items:center;justify-content:center}
+html.pocket .canvas-wrap{box-shadow:0 14px 34px rgba(0,0,0,.32)}
+#pk-top,#pk-bar,#pk-card,#pk-full{display:none}
+html.pocket #pk-top{display:flex;position:fixed;left:0;right:0;top:0;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+#pk-top b{font-size:13px;font-weight:700;letter-spacing:.22em;text-transform:uppercase}
+#pk-id{color:#8a8494;background:none;border:0;font:12px -apple-system,BlinkMacSystemFont,Arial,sans-serif;padding:4px 6px;margin:0;width:auto;min-height:0;height:auto;cursor:pointer;text-decoration:underline dotted #b9b3c2;text-underline-offset:3px}
+html.pocket #pk-bar{display:flex;position:fixed;left:0;right:0;bottom:0;height:96px;align-items:flex-start;justify-content:center;gap:8px;padding:12px 16px 0}
+#pk-bar button{flex:1;max-width:96px;height:46px;border:1px solid #e4e0ea;background:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:5px;padding:0 12px;font:13px -apple-system,Arial,sans-serif;color:#1d1726;-webkit-tap-highlight-color:transparent}
+#pk-bar button:active{background:#f4f1f7}
+#pk-bar .d{width:8px;height:8px;border-radius:50%;background:#c47a45}
+html.pocket #pk-full{display:block;position:fixed;left:0;right:0;bottom:8px;text-align:center;font:12px -apple-system,Arial,sans-serif;color:#8a8494}
+#pk-full a{color:#8a8494}
+#pk-card{position:fixed;inset:0;z-index:50;background:rgba(255,255,255,.96);align-items:center;justify-content:center;padding:24px;font:14px/1.5 -apple-system,Arial,sans-serif;color:#1d1726}
+#pk-card.on{display:flex}
+#pk-card .in{max-width:320px;width:100%}
+#pk-card h3{margin:0 0 14px;font-size:12px;letter-spacing:.22em;text-transform:uppercase}
+#pk-card .row{display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:7px 0}
+#pk-card .row span:first-child{color:#8a8494}
+#pk-card .sw{display:flex;gap:4px;margin:12px 0 4px}#pk-card .sw i{flex:1;height:22px;border-radius:4px}
+#pk-card p{color:#8a8494;font-size:12px;margin:14px 0 0}
+#pk-msg{position:fixed;left:0;right:0;bottom:104px;text-align:center;font:12px -apple-system,Arial,sans-serif;color:#8a8494;opacity:0;transition:opacity .3s;pointer-events:none}
 </style>
 </head>
 <body>
@@ -4632,7 +4668,9 @@ function render(){
   const _sb=document.querySelector('.sidebar');
   const _avW=window.innerWidth-(_sb?_sb.offsetWidth:320)-56;
   const _hist=document.getElementById('hist'), _histH=_hist?_hist.offsetHeight:0;
-  const px=window.__exportPx || Math.min(1.1,(innerHeight-60-_histH)/totH,_avW/totW);
+  const _pk=document.documentElement.classList.contains('pocket');      // phones: the stage between top bar and toolbar
+  const px=window.__exportPx || (_pk ? Math.min((innerHeight-64-96-24)/totH,(innerWidth-32)/totW)
+                                     : Math.min(1.1,(innerHeight-60-_histH)/totH,_avW/totW));
   cv.width=totW*px*2; cv.height=totH*px*2;
   cv.style.width=totW*px+'px'; cv.style.height=totH*px+'px';
   const g=cv.getContext('2d'); g.scale(2*px,2*px);
@@ -5063,9 +5101,16 @@ return { render, loadJSON, buildSVG, calibrateField,
     g.restore();
     window.__exportPx = null; ETCH.render();                    // back to the screen view
     if (typeof refreshRealistic === 'function') refreshRealistic();
+    const name = `memory-palace-seed${seedTag()}-4x5.png`;
+    if (document.documentElement.classList.contains('pocket') && navigator.canShare) {   // phones: share sheet → Save Image
+      out.toBlob(b => { const file = new File([b], name, {type:'image/png'});
+        if (navigator.canShare({files:[file]})) navigator.share({files:[file]}).catch(()=>{});
+        else { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; a.click(); } }, 'image/png');
+      return;
+    }
     const a = document.createElement('a');
     a.href = out.toDataURL('image/png');
-    a.download = `memory-palace-seed${seedTag()}-4x5.png`;
+    a.download = name;
     a.click();
   });
   const bPNG = document.getElementById('btnSavePNG');
@@ -5180,6 +5225,63 @@ return { render, loadJSON, buildSVG, calibrateField,
   Object.entries(tabs).forEach(([k,b])=>b.addEventListener('click',()=>{ view=k; tabs.recent.classList.toggle('on',k==='recent'); tabs.saved.classList.toggle('on',k==='saved'); draw(); }));
   draw();
   window.__hist={capture, restore, get data(){return data;}};   // for testing
+})();
+</script>
+<div id="pk-top"><b>Memory Palace</b><button id="pk-id">#—</button></div>
+<div id="pk-msg"></div>
+<div id="pk-bar">
+  <button id="pk-1" aria-label="Reroll"><span class="d"></span></button>
+  <button id="pk-2" aria-label="Reinvent"><span class="d"></span><span class="d"></span></button>
+  <button id="pk-3" aria-label="New everything"><span class="d"></span><span class="d"></span><span class="d"></span></button>
+  <button id="pk-save">Save</button>
+</div>
+<div id="pk-full"><a href="?full">Desktop - Full Studio</a></div>
+<div id="pk-card"><div class="in" id="pk-card-in"></div></div>
+<script>
+// ═══ Pocket studio: phones. Drives the same studio underneath. ═══
+(function(){
+  if(!document.documentElement.classList.contains('pocket')) return;
+  const $=id=>document.getElementById(id);
+  const click=id=>{ const b=$(id); if(b) b.click(); };
+  let idx=0;                                             // 0 = the newest cabinet in the history
+  const msg=t=>{ const m=$('pk-msg'); m.textContent=t; m.style.opacity=1; clearTimeout(msg.t); msg.t=setTimeout(()=>m.style.opacity=0,1400); };
+  $('pk-1').onclick=()=>{ idx=0; click('rnd1'); };
+  $('pk-2').onclick=()=>{ idx=0; click('rnd2'); };
+  $('pk-3').onclick=()=>{ idx=0; click('rnd3'); };
+  $('pk-save').onclick=()=>click('btnSave45');
+  // the id line follows the studio's own
+  const sync=()=>{ const n=($('cabNo')||{}).textContent||'#—', d=(($('cabDrawers')||{}).textContent||'').replace(/\D+/g,'');
+    $('pk-id').textContent=n; };
+  new MutationObserver(sync).observe($('cabNo'),{childList:true,characterData:true,subtree:true}); sync();
+  // swipe through the cabinets you've made
+  const list=()=>{ const h=window.__hist; if(!h) return []; const d=h.data; return Array.isArray(d)?d:(d.recent||Object.values(d)[0]||[]); };
+  let sx=null, sy=null;
+  addEventListener('touchstart',e=>{ if(e.target.closest('#pk-bar,#pk-card,#pk-top')) return; sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
+  addEventListener('touchend',e=>{ if(sx==null) return; const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy; sx=null;
+    if(Math.abs(dx)<50||Math.abs(dy)>Math.abs(dx)) return;
+    const L=list(); if(!L.length) return;
+    const j=Math.max(0,Math.min(L.length-1,idx+(dx>0?1:-1)));
+    if(j===idx){ msg(dx>0?'That was your first one':'This is the newest'); return; }
+    idx=j; window.__hist.restore(L[idx]); msg(`${idx+1} of ${L.length}`); },{passive:true});
+  // "what made it": the decisions behind this cabinet, in plain words
+  const ETCHNAME={flow:'Flow lines',grain:'Wood grain',none:'Plain'};
+  $('pk-id').onclick=()=>{
+    const pal=(typeof S!=='undefined'&&S.activePalette)||[], rows=(typeof composition!=='undefined')?composition.length:'—';
+    const d=(($('cabDrawers')||{}).textContent||'').replace(/\D+/g,'');
+    const w=typeof S!=='undefined'?Math.round(S.compW):'—', h=typeof composedHeightMm==='function'?Math.round(composedHeightMm()):'—';
+    const etch=(typeof ETCH!=='undefined'&&ETCH.S)?(ETCHNAME[ETCH.S.fill]||ETCH.S.fill):'—';
+    $('pk-card-in').innerHTML=`<h3>${$('cabNo').textContent}</h3>
+      <div class="row"><span>Drawers</span><span>${d}</span></div>
+      <div class="row"><span>Rows</span><span>${rows}</span></div>
+      <div class="row"><span>Size</span><span>${w} × ${h} mm</span></div>
+      <div class="row"><span>Etch</span><span>${etch}</span></div>
+      <div class="row" style="border:0;padding-bottom:0"><span>Color scheme</span><span></span></div>
+      <div class="sw">${pal.map(c=>`<i style="background:${c}"></i>`).join('')}</div>
+      <p>Every cabinet is a set of decisions: layout, splits, colour, etch, knobs. The full studio lets you make each one yourself.</p>
+      <p>Tap anywhere to close.</p>`;
+    $('pk-card').classList.add('on'); };
+  $('pk-card').onclick=()=>$('pk-card').classList.remove('on');
+  addEventListener('resize',()=>{ if(typeof refreshRealistic==='function') refreshRealistic(); });
 })();
 </script>
 </body>
