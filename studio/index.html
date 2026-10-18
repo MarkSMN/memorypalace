@@ -351,7 +351,7 @@ canvas { display: block; }
 /* ── pocket mode (phones) ─────────────────────────────────────────── */
 html.pocket body{background:#fff;color:#1d1726;overflow:hidden;height:100%}
 html.pocket .sidebar, html.pocket #hist, html.pocket .stats-bar{display:none!important}
-html.pocket .main{position:fixed;left:0;right:0;top:64px;bottom:96px;padding:0;display:flex;align-items:center;justify-content:center}
+html.pocket .main{position:fixed;left:0;right:0;top:64px;bottom:96px;padding:0 0 calc((100vh - 160px)*0.1);display:flex;align-items:center;justify-content:center}   /* centre lands on the eye line, 45% down */
 html.pocket .canvas-wrap{box-shadow:0 14px 34px rgba(0,0,0,.32)}
 #pk-top,#pk-bar,#pk-card,#pk-full{display:none}
 html.pocket #pk-top{display:flex;position:fixed;left:0;right:0;top:0;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
@@ -4669,7 +4669,11 @@ function render(){
   const _avW=window.innerWidth-(_sb?_sb.offsetWidth:320)-56;
   const _hist=document.getElementById('hist'), _histH=_hist?_hist.offsetHeight:0;
   const _pk=document.documentElement.classList.contains('pocket');      // phones: the stage between top bar and toolbar
-  const px=window.__exportPx || (_pk ? Math.min((innerHeight-64-96-24)/totH,(innerWidth-32)/totW)
+  // pocket: the 4:5 'Wall' idea on the phone. One scale for every cabinet (the screen is a slice
+  // of wall WALL_MM wide), so small cabinets stay small; centred on the eye line (45% down the
+  // stage), so the cabinet can reach at most 90% of the stage height. Too big → fit, as in the export.
+  const _stH=innerHeight-64-96, _wall=Number((document.getElementById('wallW')||{}).value)||1000;
+  const px=window.__exportPx || (_pk ? Math.min((innerWidth-32)/_wall, (0.9*_stH-24)/totH, (innerWidth-32)/totW)
                                      : Math.min(1.1,(innerHeight-60-_histH)/totH,_avW/totW));
   cv.width=totW*px*2; cv.height=totH*px*2;
   cv.style.width=totW*px+'px'; cv.style.height=totH*px+'px';
@@ -5249,6 +5253,10 @@ return { render, loadJSON, buildSVG, calibrateField,
   $('pk-2').onclick=()=>{ idx=0; click('rnd2'); };
   $('pk-3').onclick=()=>{ idx=0; click('rnd3'); };
   $('pk-save').onclick=()=>click('btnSave45');
+  // phones use the Wall scale and the eye line, so Save matches what's on screen
+  const setv=(id,v)=>{ const e=$(id); if(e){ e.value=v; e.dispatchEvent(new Event('change')); e.dispatchEvent(new Event('input')); } };
+  setv('posterScale','wall'); setv('wallW',1000); setv('posterPlace','eye');
+  if(typeof refreshRealistic==='function') refreshRealistic();
   // the id line follows the studio's own
   const sync=()=>{ const n=($('cabNo')||{}).textContent||'#—', d=(($('cabDrawers')||{}).textContent||'').replace(/\D+/g,'');
     $('pk-id').textContent=n; };
