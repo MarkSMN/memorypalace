@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extras · Memory Palace</title>
+<link rel="icon" href="favicon.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #2b2b2b; color: #222; font: 13px/1.4 -apple-system, Helvetica, sans-serif; overflow: hidden; }
+  canvas { display: block; }
+  #ui { position: fixed; left: 16px; right: 16px; bottom: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        background: rgba(255,255,255,.85); padding: 10px 14px; border-radius: 10px; }
+  #ui button, #ui select { font: inherit; padding: 5px 10px; border: 1px solid #999; border-radius: 6px; background: #fff; cursor: pointer; }
+  #scrub { flex: 1; min-width: 160px; }
+  #step { min-width: 200px; font-weight: 600; }
+  #load { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
+  #hint { position: fixed; top: 12px; right: 16px; opacity: .55; }
+  .hidden { display: none !important; }
+  #stage { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); }
+  #out { width: 100%; height: 100%; box-shadow: 0 6px 30px rgba(0,0,0,.4); }
+  .guide { position: absolute; left: 0; right: 0; background: rgba(255,0,90,.16); border: 1px dashed rgba(255,0,90,.7);
+           color: rgba(160,0,60,.9); font-size: 11px; display: grid; place-items: center; pointer-events: none; }
+  #gTop { top: 0; height: 14%; } #gBot { bottom: 0; height: 20%; }
+  #rec.on { background: #d0021b; color: #fff; border-color: #d0021b; }
+  #hint { color: #ccc; }
+  /* ── public page ── */
+  html, body { background: var(--bg, #d6d0c6); }
+  #ui, #hint { display: none !important; }
+  #stage { left: 0; top: 0; transform: none; }
+  #out { box-shadow: none; }
+  #load { color: #7a7a7a; }
+  #back { position: fixed; left: 16px; top: 14px; z-index: 5; font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+          color: #1d1726; text-decoration: none; border: 1px solid rgba(0,0,0,.14); border-radius: 7px; padding: 7px 13px; background: rgba(255,255,255,.35); }
+  #back:hover { border-color: #c47a45; }
+</style>
+</head>
+<body>
+<div id="load">Loading…</div>
+<a id="back" href="artwork.html" onclick="if (document.referrer.startsWith(location.origin)) { history.back(); return false; }">&larr; Back</a>
+<div id="hint">H hides the controls · Space plays</div>
+<div id="stage"><canvas id="out" width="1080" height="1920"></canvas>
+  <div class="guide hidden" id="gTop"></div><div class="guide hidden" id="gBot"></div></div>
+<div id="ui">
+  <button id="play">▶ Play</button>
+  <input id="scrub" type="range" min="0" max="1000" value="0">
+  <span id="step"></span>
+  <label>Speed <input id="speed" type="range" min="0.25" max="3" step="0.05" value="1.85" style="width:140px"> <b id="speedV">1.85×</b></label>
+  <label><input id="reverse" type="checkbox"> Reverse</label>
+  <label title="1 = linear (constant speed) · 2 = the original · higher = softer starts and stops">Ease <input id="ease" type="range" min="1" max="6" step="0.1" value="2" style="width:110px"> <b id="easeV">2.0</b></label>
+  <label><input id="loop" type="checkbox" checked> Loop</label>
+  <input id="guides" type="checkbox" hidden>
+  <label><input id="titleOn" type="checkbox" checked> End title</label>
+  <input id="sound" type="checkbox" hidden> <label><input id="sfx" type="checkbox"> Sweeps</label> <span id="scoreName" hidden></span>
+  <button id="match" class="hidden" hidden></button>
+  <button id="rec">● Record video</button>
+  <label><input id="auto" type="checkbox" checked> Auto camera</label>
+  <select id="camSeq"><option value="glide" selected>Glide</option><option value="orbit">Orbit</option>
+    <option value="topfollow">Top · follow</option><option value="top">Top</option><option value="isofollow">Iso · follow</option><option value="iso">Iso</option><option value="front">Front low</option>
+    <option value="drawer">Drawer close</option><option value="map">Map close</option></select>
+  <button id="recAll" title="Renders every camera angle, one after another, same timing — for a multicam edit">Record all angles</button>
+  <label><input id="arrange" type="checkbox"> Arrange</label>
+  <span id="arrangeTools" class="hidden"><span id="coords">drag a piece</span>
+    <button id="copyL">Copy layout</button> <button id="pasteL">Paste</button> <button id="resetL">Reset</button></span>
+  <select id="bg"><option value="white" selected>White</option><option value="black">Black</option><option value="warm">Warm grey</option><option value="warmw">Warm grey · white whites</option></select>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+// ───────────── scene. Everything is in millimetres, Z-up (as in OpenSCAD). ─────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const OUT = document.getElementById('out'), octx = OUT.getContext('2d');
+// The canvas fills the whole window, so nothing (shadows included) is cut at a frame edge.
+// The 9:16 story framing is the minimum: wider windows see more at the sides, taller ones more above and below.
+let FRAME = { x: 0, y: 0, w: 1080, h: 1920 }, camera;
+function fitStage() {
+  const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+  const pw = Math.round(W * dpr), ph = Math.round(H * dpr), a = W / H;
+  renderer.setSize(pw, ph, false); OUT.width = pw; OUT.height = ph;
+  FRAME = a >= 9 / 16 ? { w: ph * 9 / 16, h: ph, x: (pw - ph * 9 / 16) / 2, y: 0 }
+                      : { w: pw, h: pw * 16 / 9, x: 0, y: (ph - pw * 16 / 9) / 2 };
+  if (camera) {
+    camera.aspect = a;
+    camera.fov = a >= 9 / 16 ? 40 : 2 * Math.atan(Math.tan(Math.PI / 9) * (9 / 16) / a) * 180 / Math.PI;
+    camera.updateProjectionMatrix();
+  }
+  const w = W, h = H;
+  Object.assign(document.getElementById('stage').style, { width: w + 'px', height: h + 'px' });
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#ffffff');
+camera = new THREE.PerspectiveCamera(40, 9 / 16, 30, 4000);
+fitStage();
+const controls = new OrbitControls(camera, OUT);
+controls.enableDamping = true; controls.enabled = false;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 2.1);
+key.position.set(250, 500, 300); key.castShadow = true;
+key.shadow.mapSize.set(innerWidth > 800 ? 4096 : 2048, innerWidth > 800 ? 4096 : 2048);
+Object.assign(key.shadow.camera, { left: -900, right: 900, top: 900, bottom: -900, near: 10, far: 2000 });
+key.shadow.bias = -0.0003;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.55); fill.position.set(-300, 150, 200); scene.add(fill);
+const rake = new THREE.DirectionalLight(0xfff4e8, 0.9); rake.position.set(-500, 120, -300); scene.add(rake);   // low, from the far left: catches curb edges
+
+const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; scene.add(world);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.ShadowMaterial({ opacity: 0.17 }));
+ground.position.z = -2.76; ground.receiveShadow = true; world.add(ground);
+
+const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: c === 0x262626 ? 0.42 : 0.6 });
+const BLACK = 0x262626, WHITE = 0xf4f2ee;
+
+// ───────────── matrix helpers ─────────────
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
+const Rx = a => new THREE.Matrix4().makeRotationX(a);
+const Ry = a => new THREE.Matrix4().makeRotationY(a);
+const mul = (...ms) => ms.reduce((a, b) => a.clone().multiply(b));
+const rotAbout = (p, axis, a) => mul(T(p.x, p.y, p.z), new THREE.Matrix4().makeRotationAxis(axis, a), T(-p.x, -p.y, -p.z));
+// a smooth move from pose A to pose B, rising `arc` mm at the midpoint
+function tween(A, B, k, arc = 0) {
+  const pa = V(), qa = new THREE.Quaternion(), sa = V(), pb = V(), qb = new THREE.Quaternion(), sb = V();
+  A.decompose(pa, qa, sa); B.decompose(pb, qb, sb);
+  const p = pa.lerp(pb, k); p.z += arc * Math.sin(Math.PI * k);
+  return new THREE.Matrix4().compose(p, qa.slerp(qb, k), sa.lerp(sb, k));
+}
+const place = (obj, m) => { obj.matrixAutoUpdate = false; obj.matrix.copy(m); obj.matrixWorldNeedsUpdate = true; };
+const ease = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+// object moves: an ease-in-out whose strength you set (1 = linear, 2 ≈ the original, higher = softer starts and stops)
+let EASE_P = 2;
+try { const v = NaN && parseFloat(localStorage.getItem('edition-story-ease')); if (v >= 1 && v <= 6) EASE_P = v; } catch (_) {}
+const mease = x => x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 0.5 * Math.pow(2 * x, EASE_P) : 1 - 0.5 * Math.pow(2 * (1 - x), EASE_P);
+const seg = (t, a, b) => mease((t - a) / (b - a));
+
+// fade an object in (each mesh has its own material)
+function fade(obj, a) {
+  obj.visible = a > 0.002;
+  obj.traverse(o => { if (o.material) for (const m of [].concat(o.material)) {
+    m.transparent = a < 0.999; m.opacity = a; m.depthWrite = a > 0.6;
+  } });
+}
+
+// ───────────── load the printed parts ─────────────
+const loader = new STLLoader();
+const loadSTL = (file, color, pre) => new Promise((ok, bad) => loader.load(file, g => {
+  if (pre) g.applyMatrix4(pre);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat(color)); m.castShadow = m.receiveShadow = true; ok(m);
+}, undefined, bad));
+const M3 = (r, t) => new THREE.Matrix4().set(r[0], r[1], r[2], t[0], r[3], r[4], r[5], t[1], r[6], r[7], r[8], t[2], 0, 0, 0, 1);
+const P = await Promise.all([
+  loadSTL('extras/shell.stl', BLACK, M3([1,0,0, 0,0,-1, 0,1,0], [-2.75, 88.9, -2.75])),
+  loadSTL('extras/drawer.stl', BLACK),
+  loadSTL('extras/false_floor.stl', BLACK),
+  loadSTL('extras/head_l.stl', WHITE),
+  loadSTL('extras/head_r.stl', WHITE),
+  loadSTL('extras/face.stl', WHITE, M3([1,0,0, 0,0,-1, 0,1,0], [1.2 - 2.75, 0, 1.2 - 2.75])),
+  loadSTL('extras/knob.stl', BLACK, M3([-1,0,0, 0,0,1, 0,1,0], [0, -19.1, 0])),   // centred on its own axis
+  loadSTL('extras/tray.stl', WHITE),
+  loadSTL('extras/cover.stl', WHITE),
+  loadSTL('extras/ptube.stl', WHITE),
+  loadSTL('extras/pcap.stl', WHITE),
+]);
+const [shell, drawer, floor, headL, headR, face, knob, tray, cover, ptube, pcap] = P;
+
+// ───────────── the pencil: a 90 mm shorty with an eraser, tip at z = 0 ─────────────
+function makePencil() {
+  const g = new THREE.Group();
+  const hexR = 3.7, tip = 12, ferrule = 7, eraser = 5, body = 90 - tip - ferrule - eraser;
+  const add = (geo, color, z, rough = 0.6, metal = 0) => {
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal }));
+    m.rotation.x = Math.PI / 2; m.position.z = z; m.castShadow = true; g.add(m); return m;
+  };
+  add(new THREE.CylinderGeometry(hexR, hexR, body, 6), 0xf6f5f2, tip + body / 2, 0.35);         // white lacquered hex body
+  add(new THREE.CylinderGeometry(hexR * 0.92, 0.9, tip - 2.5, 6), 0xc98478, 2.5 + (tip - 2.5) / 2, 0.85);   // shaved wood (red cedar)
+  add(new THREE.CylinderGeometry(0.9, 0.15, 2.5, 16), 0x2a2a2a, 1.25, 0.4);                    // graphite point
+  add(new THREE.CylinderGeometry(3.45, 3.45, ferrule, 32), 0xd4a62a, tip + body + ferrule / 2, 0.3, 0.9);   // brass ferrule
+  add(new THREE.CylinderGeometry(3.25, 3.25, eraser, 32), 0xe9b3ad, 90 - eraser / 2, 0.9);   // eraser
+  for (const m of g.children) m.rotation.x = Math.PI / 2;   // cylinder axis → +Z
+
+  // laser etching: one line per hex face, reading eraser → tip
+  const apo = hexR * Math.cos(Math.PI / 6), faceW = hexR;
+  const etch = (text, phi, len) => {
+    const cv = document.createElement('canvas'); cv.width = 2048; cv.height = Math.round(2048 * faceW / len);
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#8c2e1e'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.font = `bold ${Math.round(cv.height * 0.56)}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    cx.fillText(text, cv.width / 2, cv.height / 2, cv.width * 0.98);
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, faceW),
+      new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.8, depthWrite: false,
+                                       polygonOffset: true, polygonOffsetFactor: -2 }));
+    m.rotation.y = Math.PI / 2; m.position.set(apo + 0.01, 0, 0);
+    const holder = new THREE.Group(); holder.add(m); holder.rotation.z = phi; holder.position.z = 47;
+    g.add(holder);
+  };
+  // the tube group lies with local −x up, so φ = π is the top face as the pencil rests on the table
+  etch('EXTRAS 1 / 10', Math.PI, 34);
+  etch('MEMORY PALACE', 4 * Math.PI / 3, 34);
+  // flip end for end (about x, so the etched face stays up): eraser at z = 0 goes in first,
+  // the sharpened tip ends at the cap end — the cap only closes over the tip
+  const flipped = new THREE.Group();
+  g.rotation.x = Math.PI; g.position.z = 90;
+  flipped.add(g);
+  return flipped;
+}
+const pencil = makePencil();
+
+// ───────────── the map: letter paper in 12 panels (thirds × quarters), the drawing on top ─────────────
+const PW = 215.9, PH = 279.4, CW = PW / 4, RH = PH / 3;
+const tex = await new THREE.TextureLoader().loadAsync('extras/cheat-sheet-drawing.jpg');
+tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+const paper = new THREE.Group();
+const panels = [];
+for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
+  const geo = new THREE.PlaneGeometry(CW, RH);
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (c + uv.getX(i)) / 4, (r + uv.getY(i)) / 3);
+  geo.translate(c * CW + CW / 2, r * RH + RH / 2, 0);
+  const cell = new THREE.Group();
+  const front = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, side: THREE.FrontSide }));
+  const back = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xf7f5f0, roughness: 0.9, side: THREE.BackSide }));
+  front.castShadow = true;   // no self-shadowing on the thin layers (that striped)
+  cell.add(front, back); paper.add(cell); panels.push({ r, c, cell });
+}
+// the folds, in order. Each turns its panels 180° about a crease (in the paper's frame, after the folds before it).
+const e = 0.2;    // paper layer spacing (enough that the layers never flicker)
+const FOLDS = [
+  { who: p => p.r === 0,               at: V(0, RH, e),         axis: V(1, 0, 0), ang: -Math.PI, t: [3.0, 4.1] },   // bottom third up
+  { who: p => p.r === 2,               at: V(0, 2 * RH, 3 * e), axis: V(1, 0, 0), ang:  Math.PI, t: [4.3, 5.4] },   // top third down
+  // then a gate fold: both outer quarters fold in to meet at the centre (together)…
+  { who: p => p.c === 0,               at: V(CW, 0, 7 * e),     axis: V(0, 1, 0), ang:  Math.PI, t: [5.8, 6.8] },
+  { who: p => p.c === 3,               at: V(3 * CW, 0, 7 * e), axis: V(0, 1, 0), ang: -Math.PI, t: [5.8, 6.8] },
+  // …and it closes down the centre
+  { who: p => p.c <= 1,                at: V(2 * CW, 0, 15 * e),axis: V(0, 1, 0), ang:  Math.PI, t: [7.0, 8.0] },
+];
+function foldPaper(t) {
+  for (const p of panels) {
+    let m = new THREE.Matrix4();
+    for (const f of FOLDS) if (f.who(p)) m = mul(rotAbout(f.at, f.axis, f.ang * seg(t, ...f.t)), m);
+    place(p.cell, m);
+  }
+}
+
+// ───────────── layout on the table (mm, x right / y away from you). Table at z = -2.75. ─────────────
+// Every piece's place is here, and Arrange mode edits it by dragging.
+const TB = -2.75;
+const DRAWER_OUT = -175;                 // the drawer sits this far in front of the shell while it's filled
+const DEFAULT_LAYOUT = {                 // portrait: one column, top to bottom, the camera follows the action down it
+  paper: { x: -54,  y: 330 },            // the map's corner (top of the column)
+  tray:  { x: -54,  y: 250 },            // map box tray, under the map
+  cover: { x: 63,   y: 250 },            // its cover, beside the tray
+  tube:  { x: -54,  y: 200 },            // pencil tube (closed end); pencil and cap beside it
+  floor: { x: 0,    y: -290 },           // false floor, under the heads (bottom of the column)
+  heads: { x: 0,    y: -205 },           // the pair, right under the face
+  face:  { x: 0,    y: -290 },           // drawer face, flat, between drawer and floor
+  knob:  { x: 135,  y: -258 },           // knob on its cap
+};
+const KEY = 'edition-story-layout-v3';
+let L = structuredClone(DEFAULT_LAYOUT);
+try { const saved = null; if (saved) for (const k in L) if (saved[k]) L[k] = saved[k]; } catch (_) {}
+const saveLayout = () => { try { localStorage.setItem(KEY, JSON.stringify(L)); } catch (_) {} };
+
+// seats in the drawer (drawer coords, from false-floor-drawer.scad)
+const SEAT_BOX  = T(4.8, 15.65, 5.7);
+const SEAT_TUBE = mul(T(5.9, 77.45, 6.0), Ry(Math.PI / 2));
+const IN_TRAY = mul(T(2 * RH + 2.6, 3.4 - 2 * CW, 1.25),   // the folded packet now sits at x 2CW..3CW
+   new THREE.Matrix4().makeRotationZ(Math.PI / 2), new THREE.Matrix4().makeScale(1, 1, 0.25));   // 6 mm of spaced layers → 1.5 mm: under the lid
+const COVER_ON = mul(T(0, 60.8, 5.1), Rx(Math.PI));
+const CAP_ON   = mul(T(0, 0, 97.0), Rx(Math.PI));
+
+// ───────────── hierarchy ─────────────
+const boxG = new THREE.Group(); boxG.add(tray, cover, paper); world.add(boxG);
+const tubeG = new THREE.Group(); tubeG.add(ptube, pencil, pcap); world.add(tubeG);
+const knobG = new THREE.Group(); knobG.add(knob);
+const drawerG = new THREE.Group(); drawerG.add(drawer, floor, headL, headR, face, knobG); world.add(drawerG);
+world.add(shell);
+// what each piece is called in the layout (for dragging)
+const tag = (obj, k) => obj.traverse(o => { o.userData.layout = k; });
+tag(paper, 'paper'); tag(tray, 'tray'); tag(cover, 'cover'); tag(tubeG, 'tube'); tag(floor, 'floor');
+tag(headL, 'heads'); tag(headR, 'heads'); tag(face, 'face'); tag(knobG, 'knob');
+const PICKABLE = [paper, tray, cover, tubeG, floor, headL, headR, face, knobG];
+
+// up to a safe height, across, (pause), and straight down — solid parts never pass through walls
+function carry(A, B, k, h, hold = 0) {
+  const pa = V(), qa = new THREE.Quaternion(), pb = V(), qb = new THREE.Quaternion(), sa = V(), sb = V();
+  A.decompose(pa, qa, sa); B.decompose(pb, qb, sb);
+  const up = 0.22, down = 0.22, across = 1 - up - down - hold;
+  const p = V(), q = new THREE.Quaternion();
+  if (k < up) { p.copy(pa); p.z += (h - pa.z) * mease(k / up); q.copy(qa); }
+  else if (k < up + across) {
+    const u = mease((k - up) / across);
+    p.set(pa.x + (pb.x - pa.x) * u, pa.y + (pb.y - pa.y) * u, h); q.copy(qa).slerp(qb, u);
+  } else if (k < up + across + hold) { p.set(pb.x, pb.y, h); q.copy(qb); }   // the pause, high over its place
+  else { p.copy(pb); p.z = h + (pb.z - h) * mease((k - 1 + down) / down); q.copy(qb); }
+  return new THREE.Matrix4().compose(p, q, sa.clone().lerp(sb, Math.min(1, Math.max(0, k))));
+}
+
+// ───────────── the timeline ─────────────
+const STEPS = [
+  [0, 'Every piece'], [2.0, 'The map: folded in thirds…'], [4.8, '…and in quarters'], [7.3, 'Into the map box'],
+  [9.6, 'The pencil into its tube'], [12.6, 'The map box goes in'], [14.4, 'The pencil tube goes in'],
+  [16.4, 'The false floor'], [19.6, 'A pair of heads'], [23.0, 'The face'], [24.8, 'The knob'],
+  [26.6, 'Into the shell'], [29.5, 'Memory Palace · EXTRAS'],
+];
+const TOTAL = 33;
+
+function pose(t) {
+  const slide = seg(t, 26.6, 29.2);
+  const DW = T(0, DRAWER_OUT * (1 - slide), 0);
+  const DWi = new THREE.Matrix4().copy(DW).invert();
+  place(drawerG, DW);
+
+  // the map folds where it lies, then is carried into the tray; the cover flips over it
+  FOLDS[0].t = [2.0, 3.0]; FOLDS[1].t = [3.2, 4.2]; FOLDS[2].t = [4.8, 5.7]; FOLDS[3].t = [4.8, 5.7]; FOLDS[4].t = [5.9, 6.8];
+  foldPaper(t);
+  place(paper, carry(T(L.paper.x - L.tray.x, L.paper.y - L.tray.y, 0), IN_TRAY, seg(t, 7.3, 8.6), 25));
+  // the cover flips over to hover level, just above the tray, then lowers straight down over the curb
+  const COVER0 = T(L.cover.x - L.tray.x, L.cover.y - L.tray.y, 0), HOVER = mul(T(0, 0, 14), COVER_ON);
+  place(cover, t < 9.25 ? tween(COVER0, HOVER, seg(t, 8.6, 9.25), 40) : tween(HOVER, COVER_ON, seg(t, 9.25, 9.7)));
+
+  // the pencil slides into its tube lengthwise (tube coords: z runs along the tube), then the cap
+  const PEN0 = T(0, 34, 112), PEN1 = T(0, 0, 112), PEN2 = T(0, 0, 1.2);
+  // it rolls across the table (no slipping: a hex advances one face, 3.7 mm, per 60°), 9 faces = 3π,
+  // so it lands with EXTRAS 1/10 up at the table end (and, played in reverse, rolls out of the tube to stop there)
+  const PM = t < 10.4 ? tween(PEN0, PEN1, seg(t, 9.6, 10.4)) : tween(PEN1, PEN2, seg(t, 10.4, 11.2));
+  const roll = (1 - Math.min(1, Math.max(0, PM.elements[13] / 34))) * 3 * Math.PI;
+  place(pencil, PM.clone().multiply(new THREE.Matrix4().makeRotationZ(roll)));
+  const CAP0 = mul(T(0, -24, 108), Rx(Math.PI)), CAP1 = mul(T(0, 0, 108), Rx(Math.PI));
+  place(pcap, t < 11.7 ? tween(CAP0, CAP1, seg(t, 11.2, 11.7)) : tween(CAP1, CAP_ON, seg(t, 11.7, 12.2)));
+
+  // map box, then tube: up over the walls, across, down into their seats
+  place(boxG, carry(T(L.tray.x, L.tray.y, TB), mul(DW, SEAT_BOX), seg(t, 12.6, 14.2), 85));
+  place(tubeG, carry(mul(T(L.tube.x, L.tube.y, TB + 4.8), Ry(Math.PI / 2)), mul(DW, SEAT_TUBE), seg(t, 14.4, 16.0), 85));
+
+  // the false floor: lifted high toward the camera, held a moment, then down onto its supports
+  place(floor, carry(T(L.floor.x, L.floor.y, TB - 11.0), new THREE.Matrix4(), seg(t, 16.4, 18.6), 110));
+  // the heads, one at a time, onto their pegs
+  const H0 = T(L.heads.x, L.heads.y, TB - 13.4);
+  place(headL, carry(H0, new THREE.Matrix4(), seg(t, 19.6, 21.2), 110));
+  place(headR, carry(H0, new THREE.Matrix4(), seg(t, 20.2, 21.8), 110));   // trails the first, while it's still moving
+  // the face stands up and comes onto the drawer front; the knob turns on
+  const FACE0 = mul(T(L.face.x, L.face.y, TB), Rx(-Math.PI / 2));
+  // hinges up on its bottom edge while sliding back onto the drawer front — one smooth move, no lift
+  place(face, tween(mul(DWi, FACE0), new THREE.Matrix4(), seg(t, 23.0, 24.6)));
+  const kin = seg(t, 24.8, 26.3);
+  const KNOB_HOME = T(54.4, 0, 29);
+  const KNOB0 = mul(T(L.knob.x, L.knob.y, TB + 19.1), Rx(Math.PI / 2));
+  const kp = carry(mul(DWi, KNOB0), mul(KNOB_HOME, T(0, -40, 0)), Math.min(1, kin / 0.7), 70);
+  place(knobG, kin < 0.7 ? kp : mul(KNOB_HOME, T(0, -40 * (1 - (kin - 0.7) / 0.3), 0), Ry(-(1 - (kin - 0.7) / 0.3) * 4 * Math.PI)));
+}
+
+// ───────────── camera (three.js coords: X right, Y up, Z toward you) ─────────────
+// centred on the drawer: a hero shot of everything, a slow push in, then down to the front as it closes
+const DC = V(54.4, 0, -(DRAWER_OUT + 43.7));   // the drawer's centre while it's filled
+const C = (y, d, tilt = 60) => [V(54.4, d, -y + tilt), V(54.4, 0, -y)];   // straight down over table y, from height d
+const CAMS = [
+  [0,    ...C(385, 640)],    // the map, its top edge at the top of the frame; box and pencil below
+  [6.8,  ...C(385, 640)],
+  [8.4,  ...C(330, 600)],    // into the map box
+  [9.4,  ...C(330, 600)],
+  [10.4, ...C(240, 540)],    // the pencil into its tube
+  [12.2, ...C(240, 540)],
+  [14.2, ...C(-90, 820)],    // down to the drawer as the box and tube go in
+  [16.4, ...C(-200, 820)],   // the false floor comes up from below
+  [19.2, ...C(-230, 860)],   // the heads, from the bottom
+  [22.8, ...C(-131, 640)],   // the face and knob
+  [25.5, V(54.4, 520, 211), V(54.4, 0, 120)],   // push down toward the table
+  [27.4, V(54.4, 330, 360), V(54.4, 15, 70)],   // tipping down…
+  [30.0, V(54.4, 95, 330),  V(54.4, 30, 0)],    // …onto the front as the drawer closes
+  [33.0, V(54.4, 80, 290),  V(54.4, 30, 0)],
+];
+function camGlide(t) {
+  let i = 0; while (i < CAMS.length - 2 && t > CAMS[i + 1][0]) i++;
+  const [ta, pa, la] = CAMS[i], [tb, pb, lb] = CAMS[i + 1];
+  const lin = (t - ta) / (tb - ta);
+  const k = ease(lin);   // the long push is nearly linear: slow and steady
+  controls.target.lerpVectors(la, lb, k);
+  camera.position.lerpVectors(pa, pb, k);
+}
+
+// ── Hype cuts: hard cuts on the moves, each shot a slow push or drift. [from, to, cam from, look from, cam to, look to] ──
+// (three.js coords: x right, y up, z = -table y. Map ≈ z -470 · box ≈ -280 · tube ≈ -205 · drawer ≈ +131 · face/heads/floor below it)
+const SHOTS = [
+  [0,    2.0,  V(10, 95, -545),   V(40, 0, -500),  V(70, 85, -530),   V(95, 0, -485)],    // macro on the drawing
+  [2.0,  3.2,  V(-170, 26, -430), V(54, 18, -470), V(-150, 30, -450), V(54, 22, -470)],   // low across the table: the first fold rises
+  [3.2,  4.8,  V(54, 360, -430),  V(54, 0, -470),  V(54, 270, -440),  V(54, 0, -470)],    // straight down, punching in
+  [4.8,  7.3,  V(270, 150, -330), V(54, 0, -455),  V(230, 120, -370), V(40, 0, -440)],    // three-quarter, the last folds
+  [7.3,  9.6,  V(120, 70, -170),  V(10, 0, -270),  V(95, 55, -200),   V(5, 0, -275)],     // close on the map box: in, lid on
+  [9.6,  12.2, V(205, 16, -212),  V(20, 6, -202),  V(185, 14, -208),  V(10, 6, -202)],    // down the tube: the pencil slides in
+  [12.2, 14.4, V(54, 760, -40),   V(54, 0, -70),   V(54, 700, -10),   V(54, 0, -40)],     // high and wide: the box flies to the drawer
+  [14.4, 16.4, V(54, 150, 290),   V(54, 10, 131),  V(54, 125, 260),   V(54, 10, 131)],    // over the front wall, into the drawer
+  [16.4, 18.6, V(230, 170, 520),  V(54, 80, 400),  V(230, 160, 260),  V(54, 40, 150)],    // tracking the false floor as it rises and travels
+  [18.6, 19.6, V(54, 190, 150),   V(54, 13, 128),  V(54, 165, 145),   V(54, 13, 128)],    // top down: curbs, pegs and the number
+  [19.6, 22.6, V(230, 125, 140),  V(54, 25, 131),  V(205, 108, 140),  V(54, 25, 131)],    // side profile: the heads come down
+  [22.6, 24.8, V(54, 130, 480),   V(54, 100, 240), V(54, 45, 400),    V(54, 32, 180)],   // the face flies in and drops onto the front    // straight on: the face arrives
+  [24.8, 26.6, V(105, 52, 245),   V(54, 29, 186),  V(90, 46, 225),    V(54, 29, 186)],    // macro on the knob
+  [26.6, 29.2, V(250, 34, 210),   V(54, 30, 150),  V(250, 34, 50),    V(54, 30, 0)],      // low, tracking the drawer home
+  [29.2, 33.1, V(54, 95, 330),    V(54, 30, 0),    V(54, 78, 285),    V(54, 30, 0)],      // the front
+];
+function camHype(t) {
+  const sh = SHOTS.find(x => t >= x[0] && t < x[1]) || SHOTS[SHOTS.length - 1];
+  const k = Math.min(1, Math.max(0, (t - sh[0]) / (sh[1] - sh[0])));   // constant drift inside a shot; the cut is the change of shot
+  camera.position.lerpVectors(sh[2], sh[4], k); controls.target.lerpVectors(sh[3], sh[5], k);
+}
+// ── Orbit: a slow turn at about 45°, its centre drifting to wherever the action is ──
+const FOCI = [[0, V(54, 0, -470), 380], [7.3, V(30, 0, -300), 300], [9.6, V(40, 0, -215), 260], [12.6, V(54, 20, -60), 520],
+              [16.4, V(54, 20, 250), 460], [19.6, V(54, 20, 180), 360], [23, V(54, 25, 160), 300], [26.6, V(54, 30, 60), 480], [33, V(54, 30, 0), 650]];   // ends wider: room around the shell
+function camOrbit(t) {
+  let i = 0; while (i < FOCI.length - 2 && t > FOCI[i + 1][0]) i++;
+  const [ta, fa, ra] = FOCI[i], [tb, fb, rb] = FOCI[i + 1], k = ease((t - ta) / (tb - ta));
+  const f = fa.clone().lerp(fb, k), rad = ra + (rb - ra) * k;
+  const settle = seg(t, 27, 31);                       // eases round to the front for the ending
+  const ang = (1 - settle) * (t * 0.16 - 0.9) + settle * Math.PI / 2;
+  controls.target.copy(f);
+  camera.position.set(f.x + Math.cos(ang) * rad * 0.75, f.y + rad * (0.75 - 0.5 * settle), f.z + Math.sin(ang) * rad * 0.75);
+}
+// ── Iso · follow: the iso angle never turns; it tracks the action and breathes in and out ──
+const ISO_DIR = V(585.6, 640, 560).normalize();
+function camIsoFollow(t) {
+  let i = 0; while (i < FOCI.length - 2 && t > FOCI[i + 1][0]) i++;
+  const [ta, fa, ra] = FOCI[i], [tb, fb, rb] = FOCI[i + 1], k = ease((t - ta) / (tb - ta));
+  const f = fa.clone().lerp(fb, k), dist = (ra + (rb - ra) * k) * 2.1;
+  controls.target.copy(f);
+  camera.position.copy(f).addScaledVector(ISO_DIR, dist);
+}
+// ── Top · follow: straight down, sliding over the action ──
+function camTopFollow(t) {
+  let i = 0; while (i < FOCI.length - 2 && t > FOCI[i + 1][0]) i++;
+  const [ta, fa, ra] = FOCI[i], [tb, fb, rb] = FOCI[i + 1], k = ease((t - ta) / (tb - ta));
+  const f = fa.clone().lerp(fb, k), h = (ra + (rb - ra) * k) * 2.1;
+  controls.target.copy(f);
+  camera.position.set(f.x, f.y + h, f.z + 0.01);
+}
+// fixed angles, for cutting between in an edit. The column runs from the map (z ≈ -610) to the false floor (z ≈ +465).
+const FIXED = {
+  top:    [V(54.4, 1650, -45),  V(54.4, 0, -75)],    // straight down on the whole column
+  iso:    [V(640, 640, 520),    V(54.4, 0, -40)],    // classic three-quarter, high
+  front:  [V(54.4, 55, 760),    V(54.4, 40, -120)],  // low on the table, looking up the column toward the shell
+  drawer: [V(300, 250, 430),    V(54.4, 20, 90)],    // medium on the drawer, where everything arrives
+  map:    [V(54.4, 560, -400),  V(54.4, 0, -440)],   // over the map and the boxes
+};
+function camAt(t) {
+  const m = document.getElementById('camSeq').value;
+  if (FIXED[m]) { camera.position.copy(FIXED[m][0]); controls.target.copy(FIXED[m][1]); }
+  else if (m === 'orbit') camOrbit(t); else if (m === 'isofollow') camIsoFollow(t); else if (m === 'topfollow') camTopFollow(t); else camGlide(t);
+}
+
+// ───────────── controls ─────────────
+const $ = id => document.getElementById(id);
+let t = 0, playing = false, last = performance.now();
+const setPlay = v => { playing = v; $('play').textContent = v ? '❚❚ Pause' : '▶ Play'; };
+const dir = () => $('reverse').checked ? -1 : 1;
+const atEnd = () => dir() > 0 ? t >= TOTAL : t <= 0;
+$('play').onclick = () => { if ($('arrange').checked) return; if (!playing && atEnd()) t = dir() > 0 ? 0 : TOTAL; setPlay(!playing); };
+$('ease').value = EASE_P; $('easeV').textContent = EASE_P === 1 ? 'linear' : EASE_P.toFixed(1);
+$('ease').oninput = () => { EASE_P = +$('ease').value; $('easeV').textContent = EASE_P === 1 ? 'linear' : EASE_P.toFixed(1);
+  try { localStorage.setItem('edition-story-ease', EASE_P); } catch (_) {} };
+$('speed').oninput = () => { $('speedV').textContent = (+$('speed').value).toFixed(2) + '×'; };
+$('reverse').onchange = () => { if (!playing && atEnd()) t = dir() > 0 ? 0 : TOTAL; };
+$('scrub').oninput = ev => { t = ev.target.value / 1000 * TOTAL; setPlay(false); };
+// palettes: background, exposure. "Warm grey · white whites" darkens the grey a touch and lifts the light,
+// so the paper, boxes, heads and face read white against it (as in the first build)
+const PALETTES = { white: ['#ffffff', 1], black: ['#111111', 1], warm: ['#e9e6e0', 1], warmw: ['#d6d0c6', 1.45] };
+$('bg').onchange = ev => { const [bg, exp] = PALETTES[ev.target.value]; scene.background.set(bg); renderer.toneMappingExposure = exp; };
+{ const q = new URLSearchParams(location.search);
+  if (PALETTES[q.get('bg')]) $('bg').value = q.get('bg');
+  if (q.get('cam') && [...$('camSeq').options].some(o => o.value === q.get('cam'))) $('camSeq').value = q.get('cam'); }
+$('bg').onchange = (f => ev => { f(ev); document.documentElement.style.setProperty('--bg', PALETTES[ev.target.value][0]); })($('bg').onchange);
+$('bg').onchange({ target: $('bg') });   // apply the default palette on load
+controls.addEventListener('start', () => { if (!$('arrange').checked) $('auto').checked = false; });
+// your own camera: kept while Auto camera is off, through play and recording, and remembered on reload
+const VIEW_KEY = 'edition-story-view-v1';
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ p: camera.position.toArray(), t: controls.target.toArray(), auto: $('auto').checked })); } catch (_) {} };
+controls.addEventListener('end', () => { if (!$('arrange').checked) saveView(); });
+$('auto').addEventListener('change', saveView);
+$('camSeq').addEventListener('change', () => { $('auto').checked = true; saveView(); });
+addEventListener('keydown', ev => {
+  if (ev.target.tagName === 'INPUT' && ev.target.type === 'text') return;
+  if (ev.key === 'h' || ev.key === 'H') { $('ui').classList.toggle('hidden'); $('hint').classList.toggle('hidden'); }
+  if (ev.code === 'Space') { ev.preventDefault(); $('play').click(); }
+});
+addEventListener('resize', fitStage);
+$('guides').onchange = ev => { for (const g of ['gTop', 'gBot']) $(g).classList.toggle('hidden', !ev.target.checked); };
+
+// ───────────── Arrange mode: drag pieces on the table (at the opening frame) ─────────────
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+const table = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TB);   // three.js: the table is y = TB
+let drag = null;
+const setPtr = ev => { const b = OUT.getBoundingClientRect(); ptr.set((ev.clientX - b.left) / b.width * 2 - 1, -((ev.clientY - b.top) / b.height) * 2 + 1); };
+function tableHit(ev) {
+  setPtr(ev);
+  ray.setFromCamera(ptr, camera);
+  const hit = new THREE.Vector3(); return ray.ray.intersectPlane(table, hit) ? hit : null;
+}
+function pick(ev) {
+  setPtr(ev);
+  ray.setFromCamera(ptr, camera);
+  const hits = ray.intersectObjects(PICKABLE, true);
+  return hits.length ? hits[0].object.userData.layout : null;
+}
+const show = k => { $('coords').textContent = k ? `${k}: x ${Math.round(L[k].x)}, y ${Math.round(L[k].y)}` : 'drag a piece'; };
+OUT.addEventListener('pointerdown', ev => {
+  if (!$('arrange').checked) return;
+  const k = pick(ev); if (!k) return;
+  drag = { k, from: tableHit(ev) }; controls.enabled = false; show(k);
+  OUT.setPointerCapture(ev.pointerId);
+});
+OUT.addEventListener('pointermove', ev => {
+  if (!$('arrange').checked) return;
+  if (!drag) { OUT.style.cursor = pick(ev) ? 'grab' : ''; return; }
+  const to = tableHit(ev); if (!to || !drag.from) return;
+  L[drag.k].x += to.x - drag.from.x; L[drag.k].y -= to.z - drag.from.z;   // three z → table -y
+  drag.from = to; show(drag.k);
+});
+addEventListener('pointerup', () => { if (drag) { drag = null; controls.enabled = true; saveLayout(); } });
+$('arrange').onchange = ev => {
+  const on = ev.target.checked;
+  $('arrangeTools').classList.toggle('hidden', !on);
+  if (on) { setPlay(false); t = 0; show(null); }
+  OUT.style.cursor = '';
+  if (!on && !$('auto').checked) try { const v = JSON.parse(localStorage.getItem(VIEW_KEY)); camera.position.fromArray(v.p); controls.target.fromArray(v.t); controls.update(); } catch (_) {}
+};
+$('copyL').onclick = async () => {
+  const txt = JSON.stringify(L);
+  try { await navigator.clipboard.writeText(txt); $('coords').textContent = 'Layout copied — paste it to Claude'; }
+  catch (_) { prompt('Copy this layout:', txt); }
+};
+$('pasteL').onclick = () => {
+  const txt = prompt('Paste a layout:'); if (!txt) return;
+  try { const v = JSON.parse(txt); for (const k in L) if (v[k]) L[k] = v[k]; saveLayout(); show(null); } catch (_) { alert('That layout could not be read.'); }
+};
+$('resetL').onclick = () => { L = structuredClone(DEFAULT_LAYOUT); saveLayout(); show(null); };
+
+$('load').classList.add('hidden');
+camAt(0); controls.update();
+try {   // a saved manual view
+  const v = null;
+  if (v && !v.auto) { $('auto').checked = false; camera.position.fromArray(v.p); controls.target.fromArray(v.t); controls.update(); }
+} catch (_) {}
+
+let offline = false;
+const HOLD_OPEN = 0.5, HOLD_CLOSED = 2.0;   // seconds resting on the open layout / the closed cabinet
+let hold = 1.0;                              // a beat on the closed cabinet before it first opens
+t = TOTAL; setPlay(true);   // true while a video renders frame by frame
+renderer.setAnimationLoop(now => {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  syncSound();
+  if (offline) return;
+  if ($('arrange').checked) t = 0;
+  else if (playing) {
+    if (hold > 0) { hold -= dt; if (hold <= 0) $('reverse').checked = !$('reverse').checked; }
+    else {
+      t += dt * +$('speed').value * dir();
+      if (atEnd()) { t = dir() > 0 ? TOTAL : 0; hold = dir() > 0 ? HOLD_CLOSED : HOLD_OPEN; }
+    }
+  }
+  pose(t);
+  if ($('arrange').checked) {   // arranging: the whole table from above
+    controls.target.copy(DC); camera.position.set(54.4, 1900, -40 + 60); controls.target.set(54.4, 0, -40);
+  } else if ($('auto').checked) camAt(t);
+  $('scrub').value = t / TOTAL * 1000;
+  let label = STEPS[0][1]; for (const [s, l] of STEPS) if (t >= s) label = l;
+  $('step').textContent = label;
+  controls.update();
+  renderer.render(scene, camera);
+  octx.drawImage(renderer.domElement, 0, 0);
+  if ($('titleOn').checked) drawTitle(seg(t, 30.0, 31.5));
+  if (rec && atEnd()) stopRec();
+});
+
+// the end title, inside the safe area, under the drawer
+const TITLE_SUB = 'EDITION OF 10';
+function drawTitle(a) {
+  if (a <= 0) return;
+  const dark = scene.background.getHex() === 0x111111;
+  octx.save(); octx.globalAlpha = a; octx.fillStyle = dark ? '#f4f2ee' : '#1b1b1b'; octx.textAlign = 'center';
+  // the pair, centred between the bottom of the drawer (~1230 px) and the bottom of the frame
+  // proportions from Mark's reference: bold title, subtitle ~3/4 its size, regular weight, softer grey
+  const k = FRAME.h / 1920, X = FRAME.x + 540 * k, Y = v => FRAME.y + v * k;   // placed in the 9:16 frame
+  octx.font = `bold ${68 * k}px Helvetica, Arial, sans-serif`; octx.fillText('EXTRAS', X, Y(1560));
+  octx.font = `${40 * k}px Helvetica, Arial, sans-serif`; octx.fillStyle = dark ? '#bdbdbd' : '#7a7a7a';
+  octx.fillText(TITLE_SUB, X, Y(1630));
+  octx.restore();
+}
+
+// ───────────── record: plays once from the start, straight to a 1080 × 1920 video ─────────────
+let rec = null, chunks = [];
+function startRec() {
+  const types = ['video/mp4;codecs=avc1.640028', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const type = types.find(x => window.MediaRecorder && MediaRecorder.isTypeSupported(x));
+  if (!type) { alert('This browser cannot record video. Try Safari or Chrome.'); return; }
+  $('arrange').checked = false; $('arrangeTools').classList.add('hidden');
+  $('loop').checked = false;
+  chunks = [];
+  rec = new MediaRecorder(OUT.captureStream(30), { mimeType: type, videoBitsPerSecond: 16_000_000 });
+  rec.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
+  rec.onstop = () => {
+    const blob = new Blob(chunks, { type: rec.mimeType }), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'extras-story' + (dir() < 0 ? '-reverse' : '') + '.' + (rec.mimeType.includes('mp4') ? 'mp4' : 'webm'); a.click();
+    rec = null; $('rec').classList.remove('on'); $('rec').textContent = '● Record video';
+  };
+  t = dir() > 0 ? 0 : TOTAL; pose(t); if ($('auto').checked) camAt(t);
+  setTimeout(() => { rec.start(); setPlay(true); }, 300);   // a beat on the first frame
+  $('rec').classList.add('on'); $('rec').textContent = '■ Recording… (click to stop)';
+}
+function stopRec() { if (rec && rec.state === 'recording' && !rec.ending) { rec.ending = true; setPlay(false); setTimeout(() => rec.stop(), 600); } }   // hold the last frame briefly
+
+// ───────────── sound: plays a MIDI score in step with the animation (drop a .mid on the page to change it) ─────────────
+// Score time = seconds into the video: 0.3 s hold, then the move. A file named like "...reverse-1.85x.mid" says what it was timed for.
+let score = null, scoreFor = null;
+function parseMidi(buf) {
+  const d = new DataView(buf); let p = 0;
+  const str = n => { let x = ''; for (let i = 0; i < n; i++) x += String.fromCharCode(d.getUint8(p + i)); p += n; return x; };
+  const u32 = () => { const v = d.getUint32(p); p += 4; return v; }, u16 = () => { const v = d.getUint16(p); p += 2; return v; }, u8 = () => d.getUint8(p++);
+  const vlq = () => { let v = 0, b; do { b = u8(); v = v * 128 + (b & 0x7f); } while (b & 0x80); return v; };
+  if (str(4) !== 'MThd') throw new Error('not MIDI');
+  const hl = u32(); u16(); const ntr = u16(), div = u16(); p = 8 + hl;
+  const tempos = [], raw = [];
+  for (let k = 0; k < ntr && p < d.byteLength; k++) {
+    const id = str(4), len = u32(), end = p + len; if (id !== 'MTrk') { p = end; continue; }
+    let tick = 0, run = 0; const on = {};
+    while (p < end) {
+      tick += vlq(); let st = d.getUint8(p); if (st & 0x80) p++; else st = run;
+      if (st === 0xff) { const type = u8(), l = vlq(); if (type === 0x51) tempos.push({ tick, us: (d.getUint8(p) << 16) | (d.getUint8(p + 1) << 8) | d.getUint8(p + 2) }); p += l; }
+      else if (st === 0xf0 || st === 0xf7) p += vlq();
+      else { run = st; const cmd = st & 0xf0, ch = st & 15, a = u8(), b = (cmd === 0xc0 || cmd === 0xd0) ? 0 : u8(), key = ch + '_' + a;
+        if (cmd === 0x90 && b > 0) (on[key] = on[key] || []).push({ tick, vel: b });
+        else if (cmd === 0x80 || (cmd === 0x90 && b === 0)) { const q = on[key]; if (q && q.length) { const s0 = q.shift(); raw.push({ t0: s0.tick, t1: tick, note: a, vel: s0.vel, ch }); } } }
+    }
+    p = end;
+  }
+  tempos.sort((a, b) => a.tick - b.tick); if (!tempos.length || tempos[0].tick > 0) tempos.unshift({ tick: 0, us: 500000 });
+  const sec = tk => { let x = 0; for (let i = 0; i < tempos.length; i++) { const a = tempos[i], b = tempos[i + 1], stop = b ? Math.min(tk, b.tick) : tk;
+    if (stop > a.tick) x += (stop - a.tick) / div * a.us / 1e6; if (!b || tk <= b.tick) break; } return x; };
+  return raw.map(n => ({ t: sec(n.t0), dur: Math.max(0.05, sec(n.t1) - sec(n.t0)), note: n.note, vel: n.vel / 127, ch: n.ch })).sort((a, b) => a.t - b.t);
+}
+function setScore(notes, name) {
+  score = notes;
+  const m = name.match(/(reverse-)?(\d+(?:\.\d+)?)x/i);
+  scoreFor = m ? { rev: !!m[1], speed: +m[2] } : null;
+  $('scoreName').textContent = '♪ ' + name.replace(/\.midi?$/i, '') + (scoreFor ? ` (timed for ${scoreFor.rev ? 'reverse ' : ''}${scoreFor.speed}×)` : '');
+  checkMatch(); stopSound();
+}
+function checkMatch() {
+  const off = scoreFor && (scoreFor.rev !== $('reverse').checked || Math.abs(scoreFor.speed - +$('speed').value) > 0.001);
+  $('match').classList.toggle('hidden', !off);
+}
+$('match').onclick = () => { $('reverse').checked = scoreFor.rev; $('speed').value = scoreFor.speed; $('speed').oninput(); $('reverse').onchange(); checkMatch(); stopSound(); };
+$('speed').addEventListener('input', () => { checkMatch(); stopSound(); });
+$('reverse').addEventListener('change', () => { checkMatch(); stopSound(); });
+// the built-in scores, one per direction; the page uses the one that matches Reverse (until you drop your own)
+const LIB = {}; let custom = false;
+const pickScore = () => { if (custom) return; const k = $('reverse').checked ? 'rev' : 'fwd'; if (LIB[k]) setScore(LIB[k].notes, LIB[k].name); };
+for (const [k, f] of [])   // music removed (Mark): no scores load
+  fetch(f).then(r => r.ok ? r.arrayBuffer() : null).then(b => { if (b) { LIB[k] = { notes: parseMidi(b), name: f }; pickScore(); } }).catch(() => {});
+$('reverse').addEventListener('change', pickScore);
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', async e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (!f) return;
+  try { setScore(parseMidi(await f.arrayBuffer()), f.name); custom = true; } catch (_) { alert('That file isn\'t a MIDI file this page can read.'); } });
+
+// the instruments (by MIDI channel): 1 pad · 2 vibraphone pulse · 3 celesta · 4 bass
+function buildBus(ctx) {
+  const out = ctx.createGain(); out.gain.value = 0.9;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3;
+  const rev = ctx.createConvolver(), len = Math.floor(ctx.sampleRate * 2.6), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  for (let c = 0; c < 2; c++) { const ch = ir.getChannelData(c); for (let i = 0; i < len; i++) ch[i] = rnd() * Math.pow(1 - i / len, 3); }
+  rev.buffer = ir; const send = ctx.createGain(); send.gain.value = 0.32;
+  out.connect(comp); out.connect(send); send.connect(rev); rev.connect(comp); comp.connect(ctx.destination);
+  return out;
+}
+function voice(ctx, bus, n, when) {
+  const f = 440 * Math.pow(2, (n.note - 69) / 12), v = n.vel, end = when + n.dur;
+  const env = ctx.createGain(); env.connect(bus); env.gain.setValueAtTime(0, when);
+  const osc = (type, freq, g = 1, det = 0) => { const o = ctx.createOscillator(), gg = ctx.createGain(); o.type = type; o.frequency.value = freq; o.detune.value = det; gg.gain.value = g; o.connect(gg); return [o, gg]; };
+  let parts = [], stop;
+  if (n.ch === 0) {          // pad: two soft detuned saws, filtered, slow swell
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100; lp.connect(env);
+    parts = [osc('sawtooth', f, 0.5, -7), osc('sawtooth', f, 0.5, 7)]; parts.forEach(([o, g]) => g.connect(lp));
+    env.gain.linearRampToValueAtTime(0.045 * v, when + 0.7); env.gain.setValueAtTime(0.045 * v, end); env.gain.linearRampToValueAtTime(0, end + 1.4); stop = end + 1.5;
+  } else if (n.ch === 1) {   // vibraphone-ish: sine + a 4× partial, quick decay
+    parts = [osc('sine', f, 1), osc('sine', f * 4, 0.15)]; parts.forEach(([o, g]) => g.connect(env));
+    env.gain.linearRampToValueAtTime(0.11 * v, when + 0.005); env.gain.exponentialRampToValueAtTime(0.0005, when + 0.9); stop = when + 1;
+  } else if (n.ch === 2) {   // celesta / bell
+    parts = [osc('sine', f, 1), osc('sine', f * 2, 0.35), osc('sine', f * 3.01, 0.12)]; parts.forEach(([o, g]) => g.connect(env));
+    env.gain.linearRampToValueAtTime(0.2 * v, when + 0.004); env.gain.exponentialRampToValueAtTime(0.0005, when + Math.max(1.8, n.dur + 1)); stop = when + Math.max(1.9, n.dur + 1.1);
+  } else {                   // bass
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500; lp.connect(env);
+    parts = [osc('triangle', f, 1), osc('sine', f / 2, 0.5)]; parts.forEach(([o, g]) => g.connect(lp));
+    env.gain.linearRampToValueAtTime(0.26 * v, when + 0.02); env.gain.exponentialRampToValueAtTime(0.0005, end + 0.8); stop = end + 0.9;
+  }
+  parts.forEach(([o]) => { o.start(when); o.stop(stop); });
+}
+// ── effects: from the animation's own timeline, so they fit any speed and either direction ──
+// moves (forward animation seconds) get a soft air sweep; contacts get a click (or a thunk for the big ones)
+const MOVES = [[2, 3, .5], [3.2, 4.2, .5], [4.8, 5.7, .5], [5.9, 6.8, .5],   // the folds (paper: lighter)
+  [7.3, 8.6, .7], [8.6, 9.6, .7], [9.6, 11.2, .6], [11.2, 12.2, .5], [12.6, 14.2, 1], [14.4, 16, 1],
+  [16.4, 18.6, 1.1], [19.6, 21.2, .9], [20.2, 21.8, .9], [23, 24.6, .9], [24.8, 26.3, .6], [26.6, 29.2, 1.2]];
+const HITS = [[8.6, 'tap'], [9.6, 'click'], [11.2, 'tick'], [12.2, 'click'], [14.2, 'click'], [16.0, 'snap'],
+  [18.6, 'thunk'], [21.2, 'knock'], [21.8, 'knock'], [24.6, 'tap'], [26.3, 'click'], [29.2, 'thunk']];
+const vAt = tf => 0.3 + ($('reverse').checked ? TOTAL - tf : tf) / +$('speed').value;   // animation time → video seconds
+const noiseCache = new WeakMap();
+function noise(ctx) {
+  if (!noiseCache.has(ctx)) { const b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = b.getChannelData(0);
+    let x = 3; for (let i = 0; i < d.length; i++) { x = (x * 16807) % 2147483647; d[i] = x / 1073741823.5 - 1; } noiseCache.set(ctx, b); }
+  return noiseCache.get(ctx);
+}
+function sweep(ctx, bus, when, dur, weight) {
+  const src = ctx.createBufferSource(); src.buffer = noise(ctx); src.loop = true;
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.4;
+  bp.frequency.setValueAtTime(380, when); bp.frequency.exponentialRampToValueAtTime(900 + 250 * weight, when + dur * 0.5); bp.frequency.exponentialRampToValueAtTime(450, when + dur);
+  const g = ctx.createGain(), peak = 0.009 * weight;   // much smaller (was 0.028)
+  g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(peak, when + dur * 0.45); g.gain.linearRampToValueAtTime(0, when + dur);
+  src.connect(bp); bp.connect(g); g.connect(bus); src.start(when, Math.random()); src.stop(when + dur + 0.05);
+}
+function hit(ctx, bus, when, kind) {
+  const P = { tick: [5200, .05, 0, 0], tap: [2600, .07, 0, 0], click: [3800, .12, 1900, .05], snap: [4400, .16, 2400, .07],
+              knock: [1600, .1, 700, .07], thunk: [500, .16, 110, .22] }[kind];
+  const [hp, amp, tone, tamp] = P;
+  const src = ctx.createBufferSource(); src.buffer = noise(ctx);
+  const f = ctx.createBiquadFilter(); f.type = kind === 'thunk' ? 'lowpass' : 'highpass'; f.frequency.value = kind === 'thunk' ? 900 : hp;
+  const g = ctx.createGain(), len = kind === 'thunk' ? 0.12 : 0.025;
+  g.gain.setValueAtTime(amp, when); g.gain.exponentialRampToValueAtTime(0.0005, when + len);
+  src.connect(f); f.connect(g); g.connect(bus); src.start(when, Math.random()); src.stop(when + len + 0.02);
+  if (tone) { const o = ctx.createOscillator(), og = ctx.createGain(); o.frequency.setValueAtTime(tone, when);
+    if (kind === 'thunk') o.frequency.exponentialRampToValueAtTime(60, when + 0.25);
+    og.gain.setValueAtTime(tamp, when); og.gain.exponentialRampToValueAtTime(0.0005, when + (kind === 'thunk' ? 0.3 : 0.06));
+    o.connect(og); og.connect(bus); o.start(when); o.stop(when + 0.35); }
+}
+// every effect as [video seconds, play(ctx, bus, when)]
+function sfxList() {
+  const L = [];
+  for (const [a, b, w] of MOVES) { const va = vAt(a), vb = vAt(b), s0 = Math.min(va, vb); L.push([s0, (c, bus, when) => sweep(c, bus, when, Math.abs(vb - va), w)]); }
+  // contact sounds (clicks, taps, thunks) removed (Mark): sweeps only
+  return L.sort((x, y) => x[0] - y[0]);
+}
+
+// where the video is right now, in score seconds
+const scoreTime = () => 0.3 + ($('reverse').checked ? TOTAL - t : t) / +$('speed').value;
+let AC = null, live = null;   // live = { bus, s0, a0 }
+function stopSound() { if (live) { const b = live.bus; b.gain.setTargetAtTime(0, AC.currentTime, 0.05); setTimeout(() => b.disconnect(), 400); live = null; } }
+const soundOn = () => (score && $('sound').checked) || $('sfx').checked;
+function startSound(from) {
+  if (!soundOn()) return;
+  AC = AC || new AudioContext(); AC.resume();
+  stopSound();
+  const bus = buildBus(AC), a0 = AC.currentTime + 0.05;
+  if (score && $('sound').checked) for (const n of score) if (n.t >= from) voice(AC, bus, n, a0 + (n.t - from));
+  if ($('sfx').checked) for (const [v, play] of sfxList()) if (v >= from - 0.05) play(AC, bus, a0 + Math.max(0, v - from));
+  live = { bus, s0: from, a0 };
+}
+function syncSound() {   // called every frame
+  if (!playing || offline || !soundOn()) { if (live) stopSound(); return; }
+  const s = scoreTime();
+  if (!live) startSound(s);
+  else if (Math.abs((live.s0 + AC.currentTime - live.a0) - s) > 0.15) startSound(s);   // looped, scrubbed or fell behind
+}
+$('sound').onchange = $('sfx').onchange = () => stopSound();   // restarts with the new mix on the next frame
+async function renderScore(seconds) {   // the same instruments, rendered offline for the video file
+  const sr = 48000, ctx = new OfflineAudioContext(2, Math.ceil(seconds * sr), sr), bus = buildBus(ctx);
+  if (score && $('sound').checked) for (const n of score) if (n.t < seconds) voice(ctx, bus, n, n.t);
+  if ($('sfx').checked) for (const [v, play] of sfxList()) if (v < seconds) play(ctx, bus, v);
+  return ctx.startRendering();
+}
+
+// ───────────── frame-by-frame video (WebCodecs): every frame at its exact time, so nothing can skip ─────────────
+import('https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/+esm').then(m => { window.__mux = m; }).catch(() => {});
+async function renderVideo(tag = '') {
+  const FPS = 30, W = 1080, H = 1920, CODEC = 'avc1.640028';
+  const ok = window.VideoEncoder && window.__mux &&
+    (await VideoEncoder.isConfigSupported({ codec: CODEC, width: W, height: H, bitrate: 16e6, framerate: FPS })).supported;
+  if (!ok) return startRec();   // older browsers: the real-time recorder
+  const { Muxer, ArrayBufferTarget } = window.__mux;
+  $('arrange').checked = false; $('arrangeTools').classList.add('hidden');
+  setPlay(false); offline = true;
+  const ACFG = { codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 };
+  const withSound = soundOn() && window.AudioEncoder && (await AudioEncoder.isConfigSupported(ACFG)).supported;
+  if (soundOn() && !withSound) alert('This browser can\'t put sound in the video, so it will be silent. (Chrome can.)');
+  const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: 'avc', width: W, height: H },
+    ...(withSound ? { audio: { codec: 'aac', numberOfChannels: 2, sampleRate: 48000 } } : {}), fastStart: 'in-memory' });
+  let failed = null;
+  const enc = new VideoEncoder({ output: (c, meta) => muxer.addVideoChunk(c, meta), error: e => { failed = e; } });
+  enc.configure({ codec: CODEC, width: W, height: H, bitrate: 16e6, framerate: FPS });
+  const speed = +$('speed').value, d = dir();
+  const t0 = d > 0 ? 0 : TOTAL, t1 = TOTAL - t0;
+  const moving = Math.ceil(TOTAL / speed * FPS), holdA = Math.round(0.3 * FPS), holdB = Math.round(0.8 * FPS);
+  const frames = holdA + moving + holdB;
+  $('rec').classList.add('on');
+  for (let i = 0; i < frames && !failed; i++) {
+    const m = Math.min(Math.max(i - holdA, 0), moving);
+    t = t0 + (t1 - t0) * (m / moving);
+    pose(t); if ($('auto').checked) camAt(t); controls.update();
+    renderer.render(scene, camera);
+    octx.drawImage(renderer.domElement, 0, 0);
+    if ($('titleOn').checked) drawTitle(seg(t, 30.0, 31.5));
+    const f = new VideoFrame(OUT, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+    enc.encode(f, { keyFrame: i % 60 === 0 }); f.close();
+    if (i % 5 === 0) {
+      $('rec').textContent = `Rendering… ${Math.round(i / frames * 100)}%`;
+      $('scrub').value = t / TOTAL * 1000;
+      while (enc.encodeQueueSize > 4) await new Promise(z => setTimeout(z, 5));
+      await new Promise(z => setTimeout(z, 0));   // let the page breathe
+    }
+  }
+  await enc.flush();
+  if (withSound && !failed) {
+    $('rec').textContent = 'Adding sound…';
+    // the score is timed from the start of the video (the hold included); an unmatched score just plays as written
+    const buf = await renderScore(frames / FPS);
+    const aenc = new AudioEncoder({ output: (c, meta) => muxer.addAudioChunk(c, meta), error: e => { failed = e; } });
+    aenc.configure(ACFG);
+    const L = buf.getChannelData(0), R = buf.getChannelData(1), STEP = 4800;
+    for (let i = 0; i < buf.length; i += STEP) {
+      const n = Math.min(STEP, buf.length - i), data = new Float32Array(n * 2);
+      data.set(L.subarray(i, i + n), 0); data.set(R.subarray(i, i + n), n);
+      const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(i / 48000 * 1e6), data });
+      aenc.encode(ad); ad.close();
+    }
+    await aenc.flush();
+  }
+  muxer.finalize();
+  offline = false; $('rec').classList.remove('on'); $('rec').textContent = '● Record video';
+  if (failed) { alert('Video failed: ' + failed.message); return; }
+  const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const cam = $('auto').checked ? $('camSeq').value : 'manual';
+  a.download = `extras-story${d < 0 ? '-reverse' : ''}-${speed.toFixed(2)}x-${cam}${tag}.mp4`; a.click();
+  return true;
+}
+$('rec').onclick = () => { if (offline) return; rec ? stopRec() : renderVideo(); };
+// every angle in turn, same speed / direction / ease, so they line up frame for frame in a multicam edit
+$('recAll').onclick = async () => {
+  if (offline || rec) return;
+  const keep = $('camSeq').value, angles = [...$('camSeq').options].map(o => o.value);
+  $('auto').checked = true;
+  for (const [i, a] of angles.entries()) {
+    $('camSeq').value = a; $('recAll').textContent = `Angle ${i + 1} of ${angles.length}…`;
+    await renderVideo();
+    await new Promise(z => setTimeout(z, 800));   // let each download start
+  }
+  $('camSeq').value = keep; $('recAll').textContent = 'Record all angles';
+};
+window.__setT = v => { t = v; setPlay(false); };
+</script>
+</body>
+</html>

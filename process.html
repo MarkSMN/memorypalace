@@ -51,6 +51,7 @@
     <a class="btn" href="./">&larr; Play</a>
     <a class="btn" href="artwork.html">View Artwork</a>
     <a class="btn" href="studio/">Studio</a>
+    <a class="btn" href="extras.html">Extras</a>
     <span class="copy">&copy; Mark Schoening 2026</span>
   </footer>
   <div class="lb" id="lb">
@@ -62,7 +63,7 @@
   </div>
 <script>
 // Gallery order — set with process-order.html (local tool), then pasted here.
-const ORDER=["023","003","005","001","021","002","004","008","010","013","016","015","014","012","011","018","020","009","019","017","022"];
+const ORDER=["003","005","001","021","002","004","008","010","013","016","015","014","012","011","018","020","009","019","017","022"];
 const grid=document.getElementById('grid'), lb=document.getElementById('lb'), lbImg=document.getElementById('lbImg');
 ORDER.forEach((n,i)=>{
   const im=document.createElement('img'); im.src=`process/${n}.jpg`; im.alt='Building Memory Palace';
