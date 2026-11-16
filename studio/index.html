@@ -305,7 +305,7 @@ textarea:focus { border-color: var(--accent); }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 28px 28px 128px;   /* bottom room for the history strip */
+  padding: 28px;   /* history strip hidden (Mark, 11/15) — was 128px bottom room */
   gap: 10px;
   overflow: hidden;
   position: relative;
@@ -331,6 +331,7 @@ canvas { display: block; }
   .cab-id{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin:2px 0 16px;
     padding:0 26px;letter-spacing:.04em;font-variant-numeric:tabular-nums}
   /* history strip: recent cabinets + saved favourites */
+  #hist{display:none !important}   /* Recent / Saved strip: off on the public studio (Mark, 11/15) */
   #hist{position:absolute;left:0;right:0;bottom:0;height:104px;background:#fff;
     display:flex;align-items:center;gap:12px;padding:0 16px 22px;z-index:5}
   .hist-tabs{display:flex;flex-direction:column;gap:4px;flex:none}
