@@ -336,7 +336,9 @@ let wetGain=null;
 // ═══ sound ═══
 let AC=null, out=null, verb=null;
 function audioOn(){
-  if(AC) return; AC=new AudioContext();
+  if(AC) return;
+  try{ if(navigator.audioSession) navigator.audioSession.type='playback'; }catch(e){}   // iPhone: play through the silent switch, like music
+  AC=new AudioContext();
   const comp=AC.createDynamicsCompressor(); comp.threshold.value=-14; comp.ratio.value=4; comp.connect(AC.destination);
   out=AC.createGain(); out.gain.value=0.8; out.connect(comp);
   verb=AC.createConvolver(); const n=AC.sampleRate*3, b=AC.createBuffer(2,n,AC.sampleRate);   // a soft room, made from noise
