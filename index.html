@@ -17,7 +17,7 @@
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
-  :root{ --text:#1d1726; --muted:#8a8494; --line:#e4e0ea; --accent:#c47a45;
+  :root{ --text:#1d1726; --muted:#8a8494; --line:#e4e0ea; --accent:#8a8494;
          --pad:clamp(20px,4.5vh,56px); }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;touch-action:manipulation}
@@ -32,7 +32,7 @@
   .btn{border:1px solid var(--line);background:#fff;color:var(--text);border-radius:7px;padding:7px 13px;font-size:12px;cursor:pointer}
   .btn:hover{border-color:var(--accent)}
   a.btn{text-decoration:none;display:inline-block}
-  .btn.on{background:var(--accent);color:#1a1206;border-color:var(--accent);font-weight:600}
+  .btn.on{background:#1d1726;color:#fff;border-color:#1d1726;font-weight:600}
   .btn:disabled{opacity:.4;cursor:default}
 
   .stage{flex:1;position:relative;min-height:0}
@@ -766,7 +766,7 @@ if(TUNING){
   box.style.cssText='position:fixed;left:12px;bottom:12px;z-index:20;background:rgba(255,255,255,.95);border:1px solid #e4e0ea;border-radius:10px;padding:10px 12px;font-size:11px;width:210px;color:#1d1726';
   const rows=[['pull','Pull distance',15,60,1,v=>v+' mm'],['openK','Open speed',100,1500,10,v=>v],['bounce','Bounce',0.15,1,0.01,v=>v>=0.99?'none':Math.round((1-v)*100)+'%'],
               ['closeK','Close snap',100,2500,10,v=>v],['delay','Object appears after',0,600,10,v=>v+' ms']];
-  box.innerHTML='<b style="letter-spacing:.14em">DRAWER FEEL</b>'+rows.map(([k,l,a,b,st])=>`<div style="display:flex;justify-content:space-between;margin-top:6px"><span>${l}</span><span id="tv-${k}"></span></div><input type="range" id="t-${k}" min="${a}" max="${b}" step="${st}" value="${TUNE[k]}" style="width:100%;accent-color:#c47a45">`).join('')
+  box.innerHTML='<b style="letter-spacing:.14em">DRAWER FEEL</b>'+rows.map(([k,l,a,b,st])=>`<div style="display:flex;justify-content:space-between;margin-top:6px"><span>${l}</span><span id="tv-${k}"></span></div><input type="range" id="t-${k}" min="${a}" max="${b}" step="${st}" value="${TUNE[k]}" style="width:100%;accent-color:#1d1726">`).join('')
     +'<div style="display:flex;gap:6px;margin-top:8px"><button class="btn" id="t-try" style="flex:1">Try a drawer</button><button class="btn" id="t-copy" style="flex:1">Copy</button></div>';
   document.body.appendChild(box);
   rows.forEach(([k,,,,,fmt])=>{ const el=document.getElementById('t-'+k), out=document.getElementById('tv-'+k);
