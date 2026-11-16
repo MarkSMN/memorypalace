@@ -62,8 +62,8 @@ function page(wrong) {
   input{width:190px;font:inherit;font-size:12px;color:#1d1726;text-align:center;letter-spacing:.08em;
     border:1px solid #e4e0ea;background:#fff;border-radius:7px;padding:7px 13px;outline:none}
   input::placeholder{color:#8a8494;letter-spacing:0}
-  input:hover,input:focus{border-color:#c47a45}
-  input.wrong{border-color:#c47a45;animation:no .36s}
+  input:hover,input:focus{border-color:#8a8494}
+  input.wrong{border-color:#1d1726;animation:no .36s}
   @keyframes no{20%{transform:translateX(-5px)}45%{transform:translateX(4px)}70%{transform:translateX(-2px)}}
   footer{padding:0 0 18px;text-align:center;font-size:11px;color:#8a8494}
   @media (max-width:760px){header{padding-top:12px}footer{padding-bottom:12px}}
