@@ -28,6 +28,7 @@
   footer .copy{margin-left:auto}
   .btn{border:1px solid var(--line);background:#fff;color:var(--text);border-radius:7px;padding:7px 13px;font-size:12px;text-decoration:none}
   .btn:hover{border-color:var(--accent)}
+  @media (max-width:600px){ footer{flex-wrap:wrap;gap:5px} .btn{padding:4px 7px;font-size:10.5px;border-radius:5px} footer .copy{width:100%;margin-left:0;margin-top:4px} .dl{display:none} }   /* phones: buttons wrap, smaller */
 </style>
 </head>
 <body>
@@ -43,7 +44,7 @@
   </main>
   <footer class="col">
     <a class="btn" href="./">&larr; Play</a>
-    <a class="btn" href="memory-palace.pdf" download>Download PDF</a>
+    <a class="btn" href="memory-palace.pdf" download><span class="dl">Download </span>PDF</a>
     <a class="btn" href="process.html">Process</a>
     <a class="btn" href="extras.html">Extras</a>
     <a class="btn" href="pairs.html">Pairs</a>
