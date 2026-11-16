@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pairs · Memory Palace</title>
+<style>
+  html,body{margin:0;height:100%;background:#fff;overflow:hidden;cursor:default}
+  body.dark{background:#000}
+  #gl{position:fixed;left:0;top:0;display:block}
+  #hud{position:fixed;left:22px;bottom:18px;color:#8a8494;font:12px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;letter-spacing:.02em;user-select:none}
+  #hud b{color:#1d1726;font-weight:600}
+  body.dark #hud{color:#8d859a} body.dark #hud b{color:#d9d2e4}
+  #hud .k{display:inline-block;min-width:16px;padding:0 4px;border:1px solid #e4e0ea;border-radius:4px;color:#1d1726;text-align:center;font-size:11px;line-height:16px;margin-right:2px}
+  body.dark #hud .k{border-color:#3a3444;color:#cfc8da}
+  #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#8a8494;font:13px -apple-system,Arial,sans-serif;letter-spacing:.22em;text-transform:uppercase;pointer-events:none;transition:opacity .6s}
+  #roll{display:none;position:fixed;right:18px;top:18px;width:230px;padding:12px 14px;background:rgba(255,255,255,.92);border:1px solid #e4e0ea;border-radius:8px;color:#8a8494;font:12px/1.5 -apple-system,Arial,sans-serif;user-select:none}
+  #roll b{color:#1d1726} #roll label{display:flex;justify-content:space-between;margin-top:7px} #roll input[type=range]{width:100%;accent-color:#1d1726}
+  #roll select{font:12px -apple-system,Arial;margin-left:6px} #roll button{margin-top:10px;width:100%;padding:6px;font:600 12px -apple-system,Arial;border:1px solid #e4e0ea;background:#fff;color:#1d1726;border-radius:6px;cursor:pointer}
+  #pp{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);width:46px;height:46px;border-radius:50%;border:1px solid #e4e0ea;background:rgba(255,255,255,.9);color:#1d1726;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:border-color .2s}
+  #pp:hover{border-color:#8a8494} #pp svg{width:16px;height:16px;fill:currentColor}
+  #back{position:fixed;left:16px;top:14px;z-index:5;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#1d1726;text-decoration:none;border:1px solid rgba(0,0,0,.14);border-radius:7px;padding:7px 13px;background:rgba(255,255,255,.35)}
+  #back:hover{border-color:#8a8494}
+</style></head><body>
+<canvas id="gl"></canvas>
+<a id="back" href="artwork.html" onclick="if (document.referrer.startsWith(location.origin)) { history.back(); return false; }">&larr; Back</a>
+<div id="start">Press any key</div>
+<button id="pp" aria-label="Play"><svg viewBox="0 0 16 16"><path d="M4 2.5v11l9.5-5.5z"/></svg></button>
+<div id="hud"></div>
+<div id="roll"><b>Memory Palace</b> · player piano
+  <label>Piece <select id="rPiece"><option value="pairs" selected>The pairs</option><option value="scales">Scales</option><option value="roll">Piano roll</option></select></label>
+  <label>Tempo <span><b id="vBpm"></b> bpm</span></label><input id="rBpm" type="range" min="40" max="96" value="96">
+  <label>One pass <span><b id="vPass"></b> s</span></label><input id="rPass" type="range" min="40" max="200" value="40">
+  <label>Bass drawers <span>largest <b id="vBass"></b>%</span></label><input id="rBass" type="range" min="5" max="50" value="50">
+  <label>Melody voices <span><b id="vThin"></b> per beat</span></label><input id="rThin" type="range" min="1" max="4" value="4">
+  <label>Voice <select id="rVoice"></select></label>
+  <label>Key <select id="rKey"></select></label>
+  <label>Mode <select id="rMode"></select></label>
+  <label>Direction <select id="rDir"><option value="1">left → right</option><option value="-1">right → left</option><option value="0">there and back</option></select></label>
+  <button id="rPlay">Play</button>
+</div>
+<script src="palace-data.js"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+// ═══ Memory Palace · Instrument ═════════════════════════════════════
+// The built cabinet (seed 23408) as something to play. Each note opens a
+// drawer — low notes on the left, high on the right — and sounds a voice
+// shaped by that drawer: big drawers deep and long, minis short and bright,
+// light faces brighter than dark. Release snaps it shut with a wooden thunk.
+// Computer keyboard now; any USB MIDI keyboard in Chrome, automatically.
+// Shares its cabinet code with the game (play.html).
+const COMP=window.MP_COMP;
+// ═══ RNG + value-noise field (studio's exact family) ═══
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function hash01(a,b,c){const h=Math.sin(a*127.1+b*311.7+c*74.7)*43758.5453;return h-Math.floor(h);}
+function vnoise(nx,ny,f,sd){
+  const x=nx*f,y=ny*f,ix=Math.floor(x),iy=Math.floor(y);
+  const fx=x-ix,fy=y-iy,sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy);
+  const a=hash01(ix,iy,sd),b=hash01(ix+1,iy,sd),c=hash01(ix,iy+1,sd),d=hash01(ix+1,iy+1,sd);
+  return a+(b-a)*sx+(c-a)*sy+(a-b-c+d)*sx*sy;
+}
+// ═══ colour helpers (ported verbatim) ═══
+function rgbOf(hex){const h=(hex||'#888888').replace('#','');return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+const hex2=v=>Math.round(Math.min(255,Math.max(0,v))).toString(16).padStart(2,'0');
+function darken(hex,p){const[r,g,b]=rgbOf(hex),k=1-Math.min(100,Math.max(0,p))/100;return'#'+hex2(r*k)+hex2(g*k)+hex2(b*k);}
+function lighten(hex,p){const[r,g,b]=rgbOf(hex),k=Math.min(100,Math.max(0,p))/100;return'#'+hex2(r+(255-r)*k)+hex2(g+(255-g)*k)+hex2(b+(255-b)*k);}
+
+// ═══ render params (studio S subset) ═══
+const S={ sheen:45, relief:100, etchDark:30, fsep:2.5, flen:80, hi:68, sh:72, frame:12 };
+let onePx=0.5;                       // mm per screen pixel at the current size
+const LIT=(c,a)=>lighten(c,a*S.hi/100);
+const DIM=(c,a)=>darken (c,a*S.sh/100);
+const SHA=a=>`rgba(0,0,0,${(a*S.sh/100).toFixed(3)})`;
+const TAU=Math.PI*2, ARC_LIT=[Math.PI*0.85,Math.PI*1.65], ARC_DIM=[Math.PI*-0.15,Math.PI*0.65];
+const FRAME=COMP.shell_color||'#655b97';
+
+// ═══ faces from the composition (studio's loadJSON geometry) ═══
+const cabW=COMP.cabinet.width_mm, fieldH=COMP.cabinet.height_mm;
+const colorSeed=COMP.meta.color_seed;
+const REV=1.6;                      // display reveal (true reveal is 1.2)
+const pal=i=>COMP.palette[i]||'#888888';
+let faces=[], cabH=0;
+(function build(){
+  let y=0;
+  COMP.rows.forEach((row,ri)=>{
+    const h=row.height_mm; let x=0;
+    row.drawers.forEach((d,ci)=>{
+      const id=`R${ri+1}C${ci+1}`;
+      const add=(part,fy,fh,sfx)=>faces.push({
+        id:id+sfx, hitx:x, hity:fy, hitw:d.width_mm, hith:fh,
+        x:x+REV, y:fy+REV, w:d.width_mm-2*REV, h:fh-2*REV,
+        hex:pal(part.face_color), phex:pal(part.pull_color), ps:part.pull_size,
+        obj:null, open:false, matched:false });
+      if(d.split){ const mh=d.mini_height_mm||h/2; add(d.top,y,mh,'T'); add(d.bottom,y+mh,h-mh,'B'); }
+      else add(d,y,h,'');
+      x+=d.width_mm;
+    });
+    y+=h;
+  });
+  cabH=y;
+})();
+
+// ═══ studio etch (genFlow) — evenly-spaced streamlines in mm ═══
+function field(X,Y){ return vnoise(X/cabW, Y/fieldH, 3.2, colorSeed); }
+function genFlow(){
+  const sepv=S.fsep, step=1.0, maxlen=S.flen;
+  const occ=new Set(), key=(px,py)=>Math.floor(px/sepv)+':'+Math.floor(py/sepv);
+  const grad=(px,py)=>{const h=0.5;return[(field(px+h,py)-field(px-h,py))/(2*h),(field(px,py+h)-field(px,py-h))/(2*h)];};
+  function trace(sx,sy,sign){
+    const pts=[[sx,sy]]; let px=sx,py=sy;
+    for(let k=0;k<maxlen/step;k++){
+      const[gx,gy]=grad(px,py),m=Math.hypot(gx,gy); if(m<1e-5)break;
+      px+=sign*gx/m*step; py+=sign*gy/m*step;
+      if(px<0||px>cabW||py<0||py>fieldH)break;
+      if(occ.has(key(px,py)))break; pts.push([px,py]);
+    }
+    return pts;
+  }
+  const lines=[], s=6;
+  for(let j=0;j<fieldH/s;j++)for(let i=0;i<cabW/s;i++){
+    const sx=(i+hash01(i,j,colorSeed))*s, sy=(j+hash01(j,i,colorSeed+1))*s;
+    if(sx<0||sx>cabW||sy<0||sy>fieldH)continue; if(occ.has(key(sx,sy)))continue;
+    const fwd=trace(sx,sy,-1), bwd=trace(sx,sy,1);
+    const line=bwd.slice(1).reverse().concat(fwd);
+    if(line.length<6)continue; lines.push(line);
+    for(const[px,py]of line)occ.add(key(px,py));
+  }
+  return lines;
+}
+function etchPath(lines,f){
+  const p=new Path2D();
+  for(const line of lines){ let run=[];
+    const flush=()=>{ if(run.length>2){ p.moveTo(run[0][0],run[0][1]); for(let i=1;i<run.length;i++)p.lineTo(run[i][0],run[i][1]); } run=[]; };
+    for(const[px,py]of line){ if(px>=f.x&&px<=f.x+f.w&&py>=f.y&&py<=f.y+f.h)run.push([px,py]); else flush(); }
+    flush();
+  }
+  return p;
+}
+function knobDia(f){ const d=12.7+(25.4-12.7)*(Math.min(8,Math.max(1,f.ps))-1)/7; return Math.min(d,0.72*Math.min(f.w,f.h)); }
+function knobLen(f){ return 16.1+(19.05-16.1)*(Math.min(8,Math.max(1,f.ps))-1)/7; }
+
+const GROUT=2*REV, frameGap=GROUT-REV, frameW=5, F=frameGap+frameW;   // mm, beyond the shells' outer edge
+const WALL=2.4, CLR=0.35, THIN=1.2, DEPTH=63.5, MDF=3;   // mm
+// Drawer feel. Open = a spring with a little overshoot; close = a firm snap, no bounce.
+const TUNE={ pull:41, openK:1390, bounce:0.3, closeK:350, delay:110 };   // set by Mark, 10/2026
+const TUNING=new URLSearchParams(location.search).has('tune');
+try{ if(TUNING) Object.assign(TUNE, JSON.parse(localStorage.getItem('mp-tune'))||{}); }catch(e){}
+const glc=document.getElementById('gl');
+const R=new THREE.WebGLRenderer({canvas:glc, antialias:true});
+R.setPixelRatio(Math.min(2,devicePixelRatio||1));
+R.outputColorSpace=THREE.SRGBColorSpace; R.toneMapping=THREE.ACESFilmicToneMapping;
+R.shadowMap.enabled=true; R.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene(); scene.background=new THREE.Color('#ffffff');
+scene.add(new THREE.HemisphereLight(0xffffff,0xcfc8d8,0.75));
+const key=new THREE.DirectionalLight(0xfff4ea,2.4);          // top-left key, as in the animator
+key.position.set(-700,900,1300); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048); key.shadow.bias=-0.0005; key.shadow.normalBias=0.4; key.shadow.radius=3;
+Object.assign(key.shadow.camera,{left:-560,right:560,top:640,bottom:-640,near:100,far:4000});
+scene.add(key,key.target);
+const wall=new THREE.Mesh(new THREE.PlaneGeometry(6000,6000),new THREE.ShadowMaterial({opacity:0.26}));
+wall.position.z=-DEPTH-0.5; wall.receiveShadow=true; scene.add(wall);
+const CAM_D=3200;                                             // far back = near-flat, so drawers stay clickable
+const cam=new THREE.PerspectiveCamera(20,1,CAM_D-1500,CAM_D+1500);
+cam.position.set(0,0,CAM_D);
+
+// cabinet mm (x right, y down from the top-left) → world (centred, y up, z out of the wall)
+const WX=x=>x-cabW/2, WY=y=>cabH/2-y;
+
+// etched fronts: one texture for the whole face, drawn from the same flow lines
+let TEXK=4;   // texture pixels per mm — matched to the screen (see fitTextures)
+function atlas(bump){
+  // 4 px/mm, and the bump lines softened, so the etch shades smoothly instead of
+  // breaking into jagged stair-steps at large / high-density screen sizes
+  const k=TEXK, c=document.createElement('canvas'); c.width=Math.round(cabW*k); c.height=Math.round(cabH*k);
+  const g=c.getContext('2d'); g.scale(k,k);
+  g.fillStyle=bump?'#fff':'#888'; g.fillRect(0,0,cabW,cabH);
+  g.lineWidth=0.35; g.lineJoin='round';
+  const carve=0.16;   // half the groove's width, mm
+  for(const f of faces){
+    // `bump` = the neutral version (white, same groove) that recoloured drawers wear, tinted
+    const col=bump?'#f4f4f4':f.hex;   // near-white, so the tint keeps its true paint value
+    g.fillStyle=col; g.fillRect(f.x,f.y,f.w,f.h);
+    // the flat game's carved groove: a lit wall up-left, a shadowed wall down-right
+    g.save(); g.translate(-carve,-carve); g.strokeStyle=bump?'#ffffff':LIT(col,Math.max(6,S.etchDark*0.55)); g.stroke(f.etch); g.restore();
+    g.save(); g.translate(carve,carve);   g.strokeStyle=darken(col,S.etchDark);                                 g.stroke(f.etch); g.restore();
+  }
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  t.generateMipmaps=false; t.minFilter=THREE.LinearFilter;   // drawn at screen size: one texel = one pixel, nothing to shrink
+  t.anisotropy=R.capabilities.getMaxAnisotropy(); return t;
+}
+// A drawer front with a small rounded edge, so the key light catches the
+// top-left edges and the bottom-right ones fall into shade, as the knobs do.
+const BEVEL=1.4;   // mm — wide enough to read as a lit or shaded line at full-cabinet view
+function frontGeo(w,h){
+  const b=BEVEL, sh=new THREE.Shape(), x=-w/2+b, y=-h/2+b, W=w-2*b, H=h-2*b;
+  sh.moveTo(x,y); sh.lineTo(x+W,y); sh.lineTo(x+W,y+H); sh.lineTo(x,y+H); sh.lineTo(x,y);
+  const g=new THREE.ExtrudeGeometry(sh,{depth:MDF-2*b,bevelEnabled:true,bevelThickness:b,bevelSize:b,bevelSegments:3,curveSegments:1});
+  g.translate(0,0,b); g.computeVertexNormals();
+  // edge tint: up-left facing edges lighter, down-right darker (the flat game's edge lines)
+  const n=g.attributes.normal, c=new Float32Array(n.count*3);
+  for(let i=0;i<n.count;i++){ const x=n.getX(i), y=n.getY(i), m=Math.hypot(x,y);
+    const k=m<0.05?1:1+0.42*(-0.707*x+0.707*y)/m;   // which way the edge faces, not how steeply
+    c[i*3]=c[i*3+1]=c[i*3+2]=k; }
+  g.setAttribute('color',new THREE.BufferAttribute(c,3)); return g;
+}
+function slab(w,h,d,x,y,z){ const g=new THREE.BoxGeometry(w,h,d); g.translate(x,y,z); return g; }
+// tee knob (pull-v1.scad profile), axis along z, cap face outward
+const KG={};
+function knobGeo(ps){
+  if(KG[ps]) return KG[ps];
+  const i=Math.min(8,Math.max(1,ps))-1, D=12.7+12.7*i/7, H=16.1+2.95*i/7, Rr=D/2, rt=4.5, th=0.745*(Rr-rt);
+  const rg=Rr-1.6-1.697, P=[[0.01,0]];
+  if(rg>rt/2) P.push([rg,0],[rg+0.85,0.85],[rg+1.697,0]);
+  P.push([Rr,0],[Rr,3.8],[rt,3.8+th],[rt,H],[0.01,H]);
+  const g=new THREE.LatheGeometry(P.map(([r,y])=>new THREE.Vector2(r,y)),40);
+  g.rotateX(-Math.PI/2); g.translate(0,0,H-WALL);     // post runs back through the MDF into the drawer
+  return KG[ps]=g;
+}
+const BG={};
+function bodyGeo(w,h){   // the printed drawer box: open top, front is the MDF face
+  const k=w.toFixed(2)+'x'+h.toFixed(2); if(BG[k]) return BG[k];
+  const d=DEPTH-THIN-CLR;
+  return BG[k]=mergeGeometries([
+    slab(w,THIN,d,0,-h/2+THIN/2,-d/2), slab(WALL,h,d,-w/2+WALL/2,0,-d/2),
+    slab(WALL,h,d,w/2-WALL/2,0,-d/2), slab(w,h,WALL,0,0,-d+WALL/2)]);
+}
+// shells read as the grout between drawers: the flat game's deep shadow value, not lit paint
+const shellMat=new THREE.MeshStandardMaterial({color:darken(FRAME,66),roughness:1});
+const bodyMat=new THREE.MeshStandardMaterial({color:FRAME,roughness:0.85});   // drawer boxes, seen when one is open
+const DARK=new THREE.Color('#0a080d'), WHITE=new THREE.Color('#ffffff');
+let tex=null, bump=null;
+function build3D(){
+  tex=atlas(false); bump=atlas(true);
+  // shells: one per drawer slot, merged into a single mesh (they never move)
+  const sg=[];
+  for(const f of faces){
+    const w=f.hitw, h=f.hith, cx=WX(f.hitx+w/2), cy=WY(f.hity+h/2), z=-DEPTH/2;
+    sg.push(slab(w,WALL,DEPTH,cx,cy+h/2-WALL/2,z), slab(w,WALL,DEPTH,cx,cy-h/2+WALL/2,z),
+            slab(WALL,h,DEPTH,cx-w/2+WALL/2,cy,z), slab(WALL,h,DEPTH,cx+w/2-WALL/2,cy,z),
+            slab(w,h,THIN,cx,cy,-DEPTH+THIN/2));
+  }
+  const shells=new THREE.Mesh(mergeGeometries(sg),shellMat); shells.castShadow=shells.receiveShadow=true; scene.add(shells);
+  // the frame band, full depth, front flush with the drawer fronts; a dark backing fills the gap inside it
+  const fw=cabW+2*F, fh=cabH+2*F, fd=DEPTH+MDF, fz=(MDF-DEPTH)/2;
+  const frameMat=new THREE.MeshStandardMaterial({color:FRAME,roughness:0.85});
+  const frame=new THREE.Mesh(mergeGeometries([
+    slab(fw,frameW,fd,0, fh/2-frameW/2,fz), slab(fw,frameW,fd,0,-fh/2+frameW/2,fz),
+    slab(frameW,fh-2*frameW,fd,-fw/2+frameW/2,0,fz), slab(frameW,fh-2*frameW,fd,fw/2-frameW/2,0,fz)]),frameMat);
+  frame.castShadow=frame.receiveShadow=true; scene.add(frame);
+  const back=new THREE.Mesh(new THREE.PlaneGeometry(fw,fh),shellMat); back.position.z=-DEPTH+0.2; scene.add(back);
+  for(const f of faces){
+    const grp=new THREE.Group(), cx=WX(f.x+f.w/2), cy=WY(f.y+f.h/2);
+    grp.position.set(cx,cy,0);
+    const body=new THREE.Mesh(bodyGeo(f.hitw-2*WALL-2*CLR,f.hith-2*WALL-2*CLR),bodyMat);
+    // front: its own box, UVs read the face's patch of the etched texture
+    const fg=frontGeo(f.w,f.h);
+    const pos=fg.attributes.position, uv=fg.attributes.uv;
+    for(let i=0;i<pos.count;i++) uv.setXY(i,(cx+pos.getX(i)+cabW/2)/cabW,(cy+pos.getY(i)+cabH/2)/cabH);
+    const fm=new THREE.MeshStandardMaterial({map:tex,roughness:0.66});   // the groove is painted into the texture: no bump (it rippled into moiré on big screens)   // a little sheen, as the painted faces have
+    // the bevelled edge: lit where it faces the key light (up-left), shaded where it faces away
+    const em=fm.clone(); em.roughness=0.5; em.vertexColors=true;
+    const front=new THREE.Mesh(fg,[fm,em]);   // extrude groups: 0 = face, 1 = edges
+    const km=new THREE.MeshStandardMaterial({color:f.phex,roughness:0.45,side:THREE.DoubleSide});
+    const knob=new THREE.Mesh(knobGeo(f.ps),km); knob.position.z=MDF;
+    for(const m of [body,front,knob]){ m.castShadow=m.receiveShadow=true; grp.add(m); }
+    scene.add(grp);
+    f.g={grp,fm,em,km,knob,out:0,v:0,goal:0,dark:0,darkGoal:0,c0:new THREE.Color(f.phex)};
+  }
+}
+function spring(g,dt){
+  const open=g.goal>g.out||g.goal===1, K=open?TUNE.openK:TUNE.closeK, Z=open?TUNE.bounce:1;
+  const C=2*Z*Math.sqrt(K), n=4, h=dt/n;
+  for(let i=0;i<n;i++){ g.v+=(K*(g.goal-g.out)-C*g.v)*h; g.out+=g.v*h;
+    if(g.out<0){ g.out=0; g.v=0; } }          // the back of the shell: a thunk, not a bounce
+  if(Math.abs(g.goal-g.out)<5e-4&&Math.abs(g.v)<5e-3){ g.out=g.goal; g.v=0; }
+}
+
+// true paint colour: no film curve (it greyed the lavenders), lights set so a
+// face turned to you shows its paint — measured: screen ≈ paint, average 1.00×
+R.toneMapping=THREE.NoToneMapping; key.intensity=2.7;
+scene.children.find(o=>o.isHemisphereLight).intensity=1.38;
+// ═══ the cabinet: on a white wall (catches the shadows), or black for dark rooms ═══
+let dark=false;
+function setDark(on){ dark=on; document.body.classList.toggle('dark',on);
+  scene.background.set(on?'#000000':'#ffffff'); wall.visible=!on; kick(); hud(); }
+const lines=genFlow(); faces.forEach(f=>f.etch=etchPath(lines,f));
+build3D();
+const maxA=Math.max(...faces.map(f=>f.w*f.h));
+faces.forEach(f=>{ f.cx=(f.x+f.w/2)/cabW; f.cy=(f.y+f.h/2)/cabH;
+  f.size=Math.sqrt(f.w*f.h/maxA);                          // 0 small … 1 the biggest drawer
+  const [r,g,b]=rgbOf(f.hex); f.L=(r+g+b)/765; });         // 0 dark … 1 light
+
+// fit the cabinet to the screen, any shape of screen (made for 16:9 projection)
+const CAM_D2=2600; let glSize='';
+function draw(){
+  const W=innerWidth, H=innerHeight;
+  if(glSize!==W+'x'+H){ R.setSize(W,H); glSize=W+'x'+H; }
+  const ch=cabH+2*F, cw=cabW+2*F, fill=0.86;
+  const visH=Math.max(ch/fill, cw/fill*H/W);                // mm visible top to bottom
+  screenK=H*R.getPixelRatio()/visH;                         // device pixels per mm on the cabinet face
+  cam.fov=2*Math.atan(visH/2/CAM_D2)*180/Math.PI; cam.aspect=W/H; cam.position.set(0,0,CAM_D2);
+  cam.near=CAM_D2-1500; cam.far=CAM_D2+1500; cam.clearViewOffset(); cam.updateProjectionMatrix();
+  R.render(scene,cam);
+}
+// Repaint the etched texture at the screen's own resolution, like the studio's
+// 2D canvas: lines land on pixels instead of being shrunk into blur and moiré.
+let screenK=0, fitT=0;
+function fitTextures(){
+  if(!screenK) return; const k=Math.min(6,Math.max(1.5,screenK));
+  if(Math.abs(k-TEXK)/TEXK<0.04) return;                    // already right
+  TEXK=k; const t2=atlas(false), b2=atlas(true); tex.dispose(); bump.dispose(); tex=t2; bump=b2;
+  faces.forEach(f=>{ const g=f.g, m=g.recol?bump:tex; g.fm.map=m; g.em.map=m; g.fm.needsUpdate=g.em.needsUpdate=true; });
+  kick();
+}
+addEventListener('resize',()=>{ kick(); clearTimeout(fitT); fitT=setTimeout(fitTextures,250); });
+setTimeout(fitTextures,300);   // after the first frame has measured the screen
+
+// ═══ motion: the game's spring, plus a thunk when a drawer lands home ═══
+let raf=0, last=0;
+function kick(){ if(!raf){ last=performance.now(); raf=requestAnimationFrame(tick); } }
+function tick(now){
+  raf=0; const dt=Math.min(0.05,(now-last)/1000); last=now; let moving=false;
+  for(const f of faces){ const g=f.g;
+    if(g.out!==g.goal||g.v){ spring(g,dt); g.grp.position.z=g.out*TUNE.pull; moving=true;
+      if(g.out>0.03) g.wasOut=true;                         // it really came out…
+      if(g.wasOut&&g.goal===0&&g.out<0.002){ g.wasOut=false; landed(f); } }   // …and it's home: knock + recolour
+  }
+  if(roll){ const p=Math.min(1,Math.max(0,(performance.now()/1000-roll.start)/roll.len));
+    rollLine.position.x=WX(roll.dir>0?p*cabW:(1-p)*cabW); moving=true; }
+  draw(); if(moving) raf=requestAnimationFrame(tick);
+}
+
+// ═══ performance values (the MPK Mini's knobs turn these) ═══
+const PERF={ wet:0.32, vol:0.8, bright:1, rel:1, splashR:0.32 };
+let wetGain=null;
+// ═══ sound ═══
+let AC=null, out=null, verb=null;
+function audioOn(){
+  if(AC) return; AC=new AudioContext();
+  const comp=AC.createDynamicsCompressor(); comp.threshold.value=-14; comp.ratio.value=4; comp.connect(AC.destination);
+  out=AC.createGain(); out.gain.value=0.8; out.connect(comp);
+  verb=AC.createConvolver(); const n=AC.sampleRate*3, b=AC.createBuffer(2,n,AC.sampleRate);   // a soft room, made from noise
+  for(let c=0;c<2;c++){ const d=b.getChannelData(c); for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3.2); }
+  verb.buffer=b; const wet=wetGain=AC.createGain(); wet.gain.value=PERF.wet; verb.connect(wet); wet.connect(comp); out.gain.value=PERF.vol;
+  document.getElementById('start').style.opacity=0; if(VOICE==='piano') setTimeout(loadPiano,0);
+}
+const hz=n=>440*Math.pow(2,(n-69)/12);
+// one voice, shaped by its drawer
+function voiceSynth(note,vel,f){
+  const t=AC.currentTime, s=f.size, L=f.L, f0=hz(note);
+  const amp=AC.createGain(), lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.Q.value=0.9;
+  const cut=(350+5200*(0.35+0.65*L)*(0.5+0.5*vel)*(1-0.35*s))*PERF.bright;
+  lp.frequency.setValueAtTime(cut*1.8,t); lp.frequency.setTargetAtTime(cut*0.55,t,0.08+0.5*s);
+  const decay=0.18+2.2*s, peak=0.32*vel*(0.7+0.3*(1-s));
+  amp.gain.setValueAtTime(0,t); amp.gain.linearRampToValueAtTime(peak,t+0.004);
+  amp.gain.setTargetAtTime(peak*0.35,t+0.004,decay/3);
+  const o=[];
+  const add=(type,mul,g)=>{ const x=AC.createOscillator(), k=AC.createGain(); x.type=type; x.frequency.value=f0*mul; k.gain.value=g; x.connect(k); k.connect(lp); x.start(t); o.push(x); };
+  add('triangle',1,0.8); add('sine',0.5,0.55*s); add('sawtooth',1.003,0.12*L);
+  lp.connect(amp); amp.connect(out); const send=AC.createGain(); send.gain.value=0.35+0.4*s; amp.connect(send); send.connect(verb);
+  return { stop(){ const r=(0.12+0.9*s)*PERF.rel, t2=AC.currentTime; amp.gain.cancelScheduledValues(t2); amp.gain.setTargetAtTime(0,t2,r/3);
+    o.forEach(x=>x.stop(t2+r*2.5)); } };
+}
+// ═══ VOICES: pick the instrument the cabinet plays ═══
+let VOICE='marimba';
+// Grand piano: Salamander Grand (Alexander Holm, CC-BY 3.0), sampled every minor third
+const PIANO={}, PURL='https://tonejs.github.io/audio/salamander/';
+const PNAMES=['C','Ds','Fs','A'], POFF=[0,3,6,9];
+let pianoLoading=null;
+function loadPiano(){
+  if(pianoLoading||!AC) return pianoLoading; const jobs=[];
+  for(let oct=1;oct<=7;oct++) PNAMES.forEach((nm,i)=>{ const midi=12*(oct+1)+POFF[i];
+    jobs.push(fetch(PURL+nm+oct+'.mp3').then(r=>r.arrayBuffer()).then(b=>AC.decodeAudioData(b)).then(buf=>{ PIANO[midi]=buf; }).catch(()=>{})); });
+  return pianoLoading=Promise.all(jobs).then(()=>hud());
+}
+function voicePiano(note,vel,f){
+  const ks=Object.keys(PIANO).map(Number); if(!ks.length) return voiceSynth(note,vel,f);
+  const k=ks.reduce((a,b)=>Math.abs(b-note)<Math.abs(a-note)?b:a), t=AC.currentTime;
+  const src=AC.createBufferSource(); src.buffer=PIANO[k]; src.playbackRate.value=Math.pow(2,(note-k)/12);
+  const amp=AC.createGain(), lp=AC.createBiquadFilter(); lp.type='lowpass';
+  lp.frequency.value=(1400+7000*vel*(0.5+0.5*f.L))*PERF.bright;              // soft = darker, as a real hammer
+  amp.gain.value=0.9*vel*vel+0.08;
+  src.connect(lp); lp.connect(amp); amp.connect(out); const send=AC.createGain(); send.gain.value=0.45; amp.connect(send); send.connect(verb);
+  src.start(t);
+  return { stop(){ const t2=AC.currentTime, r=0.35*PERF.rel; amp.gain.cancelScheduledValues(t2); amp.gain.setTargetAtTime(0,t2,r/3); src.stop(t2+r*3); } };
+}
+// FM helper: carrier at f0, one modulator at ratio, index falling over idxT seconds
+function fm(note,vel,f,{ratio,idx,idxT,decay,level,partials=[]}){
+  const t=AC.currentTime, f0=hz(note), amp=AC.createGain(), nodes=[];
+  const car=AC.createOscillator(); car.frequency.value=f0;
+  const mod=AC.createOscillator(); mod.frequency.value=f0*ratio; const mg=AC.createGain();
+  mg.gain.setValueAtTime(f0*idx*(0.4+0.6*vel),t); mg.gain.setTargetAtTime(f0*idx*0.08,t,idxT);
+  mod.connect(mg); mg.connect(car.frequency); car.connect(amp); nodes.push(car,mod);
+  for(const [mul,g,d] of partials){ const o=AC.createOscillator(), og=AC.createGain(); o.frequency.value=f0*mul;
+    og.gain.setValueAtTime(g*vel,t); og.gain.setTargetAtTime(0,t,d); o.connect(og); og.connect(amp); nodes.push(o); }
+  const pk=level*vel; amp.gain.setValueAtTime(0,t); amp.gain.linearRampToValueAtTime(pk,t+0.003); amp.gain.setTargetAtTime(0,t+0.003,decay);
+  amp.connect(out); const send=AC.createGain(); send.gain.value=0.4; amp.connect(send); send.connect(verb);
+  nodes.forEach(o=>o.start(t));
+  return { stop(){ const t2=AC.currentTime, r=0.3*PERF.rel; amp.gain.cancelScheduledValues(t2); amp.gain.setTargetAtTime(0,t2,r/3); nodes.forEach(o=>o.stop(t2+r*3)); } };
+}
+const VOICES={
+  piano:{n:'Grand piano', v:voicePiano},
+  epiano:{n:'Electric piano', v:(n,v,f)=>fm(n,v,f,{ratio:1,idx:1.6,idxT:0.25,decay:1.6+1.2*f.size,level:0.32,partials:[[14,0.05,0.04]]})},
+  musicbox:{n:'Music box', v:(n,v,f)=>fm(n+12,v,f,{ratio:3.5,idx:0.9,idxT:0.12,decay:0.9,level:0.24,partials:[[5.4,0.04,0.2]]})},
+  marimba:{n:'Marimba', v:(n,v,f)=>fm(n,v,f,{ratio:4,idx:0.5,idxT:0.05,decay:0.45+0.5*f.size,level:0.42,partials:[[10,0.06,0.02]]})},
+  synth:{n:'Original', v:voiceSynth},
+};
+function voice(note,vel,f){ return VOICES[VOICE].v(note,vel,f); }
+// the drawer landing home: recolour, and (if KNOCK) a short low knock — bigger drawers knock deeper
+const KNOCK=false;   // the landing knock: off (Mark, 10/2026) — set true to bring it back
+function landed(f){
+  if(recolorOn) recolor(f);
+  if(!AC||!KNOCK) return;
+  const t=AC.currentTime, n=Math.floor(AC.sampleRate*0.09), b=AC.createBuffer(1,n,AC.sampleRate), d=b.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,6);
+  const src=AC.createBufferSource(); src.buffer=b;
+  const bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=320-190*f.size; bp.Q.value=2.2;
+  const g=AC.createGain(); g.gain.value=0.5*(0.4+0.6*f.size); src.connect(bp); bp.connect(g); g.connect(out); src.start(t);
+}
+
+// ═══ notes → drawers: low on the left, high on the right ═══
+const LO=36, HI=96, held=new Map(), turn={};
+function drawerFor(note){
+  const tx=Math.min(1,Math.max(0,(note-LO)/(HI-LO)));
+  const near=faces.slice().sort((a,b)=>Math.abs(a.cx-tx)-Math.abs(b.cx-tx)).slice(0,9);
+  const free=near.filter(f=>!f.busy); const pool=free.length?free:near;
+  turn[note]=(turn[note]||0)+1; return pool[turn[note]%pool.length];   // repeated notes walk through the neighbours
+}
+let sustain=false; const pending=new Set();
+function noteOn(note,vel=0.8){
+  audioOn(); if(held.has(note)) noteOff(note,true);
+  const f=drawerFor(note); f.busy=true; f.g.goal=0.4+0.6*vel; kick();
+  held.set(note,{f,v:voice(note,vel,f)}); pending.delete(note);
+}
+function noteOff(note,force){
+  const h=held.get(note); if(!h) return;
+  if(sustain&&!force){ pending.add(note); return; }
+  h.v.stop(); h.f.g.goal=0; h.f.busy=false; held.delete(note); kick();
+}
+function setSustain(on){ sustain=on; if(!on){ [...pending].forEach(n=>noteOff(n)); pending.clear(); } hud(); }
+
+// ═══ splash: a drawer and the rings around it, each sounding its own note ═══
+function noteAt(f){ const n=LO+f.cx*(HI-LO), sc=SCALES[scaleI].s, b=Math.floor(n/12)*12;
+  let best=b, bd=99; for(let o=-12;o<=12;o+=12) for(const d of sc){ const c=b+o+d; if(Math.abs(c-n)<bd){bd=Math.abs(c-n);best=c;} } return best; }
+function splash(){
+  audioOn(); const c=faces[Math.floor(Math.random()*faces.length)], asp=cabH/cabW;
+  faces.map(f=>({f,d:Math.hypot(f.cx-c.cx,(f.cy-c.cy)*asp)})).filter(o=>o.d<PERF.splashR).forEach(({f,d})=>{ const q=d/PERF.splashR;
+    setTimeout(()=>{ const n=noteAt(f), v=voice(n,0.55*(1-q*0.8),f); f.g.goal=0.9*(1-q*0.95); kick();
+      setTimeout(()=>{ v.stop(); f.g.goal=0; kick(); },180+d*500); }, d*900);
+  });
+}
+
+// ═══ generative: the cabinet plays itself ═══
+// A note it plays opens a drawer for `hold` ms, separate from the keys you hold.
+function auto(note,vel,hold,f){
+  audioOn(); f=f||drawerFor(note); f.busy=true; f.g.goal=0.35+0.6*vel; kick();
+  const v=voice(note,vel,f);
+  setTimeout(()=>{ v.stop(); f.g.goal=0; f.busy=false; kick(); },hold);
+}
+// the n-th scale note above C (n can be any integer)
+function deg(n,base=48){ const sc=SCALES[scaleI].s, L=sc.length, o=Math.floor(n/L); return base+12*octave+12*o+sc[((n%L)+L)%L]; }
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+// even-spaced beats: k hits spread over n steps (Euclidean rhythm)
+const euclid=(k,n,rot=0)=>[...Array(n)].map((_,i)=>((i+rot)*k)%n<k);
+let gen=null, genTimer=0, tempo=1;
+const GENS={
+  drift:{ name:'Drift', state:{d:7}, step(st){
+      st.d=Math.max(0,Math.min(18,st.d+pick([-2,-1,-1,1,1,2,0])));
+      auto(deg(st.d),rnd(0.35,0.75),rnd(900,3200));
+      if(Math.random()<0.22) auto(deg(st.d-pick([3,5,7])),rnd(0.25,0.45),rnd(1500,3500));   // a quiet second voice
+      return rnd(600,2300); } },
+  pulse:{ name:'Pulse', state:{i:0}, step(st){
+      if(st.i%64===0){ st.bass=euclid(5,16,Math.floor(rnd(0,16))); st.mel=euclid(7,16,Math.floor(rnd(0,16)));
+        st.notes=[...Array(16)].map(()=>Math.floor(rnd(5,13))); st.root=pick([0,0,3,4]); }
+      if(st.i%16===0&&st.i%64){ const j=Math.floor(rnd(0,16)); st.notes[j]=Math.floor(rnd(5,13)); }   // one step mutates each bar
+      const k=st.i%16;
+      if(st.bass[k]) auto(deg(st.root+(k%8===0?0:pick([0,0,2])),36),0.7,220);
+      if(st.mel[k])  auto(deg(st.notes[k]),rnd(0.45,0.7),160);
+      st.i++; return 60000/104/4; } },                     // 16th notes at 104 bpm
+  rain:{ name:'Rain', state:{}, step(){
+      auto(deg(Math.floor(rnd(0,20))),rnd(0.2,0.55),rnd(90,380));
+      return -Math.log(1-Math.random())*150; } },          // random, about 6 a second
+  tides:{ name:'Tides', state:{i:0,dir:1}, step(st){
+      if(!st.order) st.order=faces.slice().sort((a,b)=>b.L-a.L);      // lightest → darkest
+      const f=st.order[st.i]; auto(noteAt(f),0.35+0.4*f.L,600,f);
+      st.i+=st.dir; if(st.i>=st.order.length||st.i<0){ st.dir*=-1; st.i+=st.dir*2; return 1600; }   // turn the tide
+      return 95; } },
+};
+function runGen(){ if(!gen) return; const wait=GENS[gen].step(GENS[gen].state); genTimer=setTimeout(runGen,wait/tempo); }
+function setGen(g){ clearTimeout(genTimer); gen=(gen===g)?null:g; if(gen){ audioOn(); runGen(); } hud(); }
+
+// ═══ MIDI files: drop one on the screen and the cabinet plays it ═══
+// Standard MIDI (format 0 or 1). Notes, durations, velocities and tempo
+// changes are read; drums (channel 10) are left out.
+function parseMidi(buf){
+  const d=new DataView(buf); let p=0;
+  const str=n=>{ let s=''; for(let i=0;i<n;i++) s+=String.fromCharCode(d.getUint8(p+i)); p+=n; return s; };
+  const u32=()=>{ const v=d.getUint32(p); p+=4; return v; }, u16=()=>{ const v=d.getUint16(p); p+=2; return v; }, u8=()=>d.getUint8(p++);
+  const vlq=()=>{ let v=0,b; do{ b=u8(); v=(v*128)+(b&0x7f); }while(b&0x80); return v; };
+  if(str(4)!=='MThd') throw new Error('not a MIDI file');
+  const hl=u32(); u16(); const ntr=u16(), div=u16(); p=8+hl;
+  const tempos=[], raw=[]; let title='';
+  for(let t=0;t<ntr&&p<d.byteLength;t++){
+    const id=str(4), len=u32(), end=p+len; if(id!=='MTrk'){ p=end; continue; }
+    let tick=0, run=0; const on={};
+    while(p<end){
+      tick+=vlq(); let st=d.getUint8(p); if(st&0x80) p++; else st=run;
+      if(st===0xff){ const type=u8(), l=vlq();
+        if(type===0x51) tempos.push({tick,us:(d.getUint8(p)<<16)|(d.getUint8(p+1)<<8)|d.getUint8(p+2)});
+        if((type===0x03||type===0x01)&&!title){ let s2=''; for(let i=0;i<l;i++) s2+=String.fromCharCode(d.getUint8(p+i)); if(/[a-z]/i.test(s2)) title=s2.trim(); }
+        p+=l; }
+      else if(st===0xf0||st===0xf7){ p+=vlq(); }
+      else { run=st; const cmd=st&0xf0, ch=st&15, a=u8(), b=(cmd===0xc0||cmd===0xd0)?0:u8();
+        const k=ch+'_'+a;
+        if(cmd===0x90&&b>0) (on[k]=on[k]||[]).push({tick,vel:b});
+        else if(cmd===0x80||(cmd===0x90&&b===0)){ const q=on[k]; if(q&&q.length){ const s0=q.shift(); if(ch!==9) raw.push({t0:s0.tick,t1:tick,note:a,vel:s0.vel}); } } }
+    }
+    p=end;
+  }
+  // ticks → seconds through the tempo map
+  tempos.sort((a,b)=>a.tick-b.tick); if(!tempos.length||tempos[0].tick>0) tempos.unshift({tick:0,us:500000});
+  const smpte=div&0x8000, tpq=div&0x7fff, tps=smpte?(256-(div>>8))*(div&0xff):0;
+  const sec=tk=>{ if(smpte) return tk/tps; let s2=0;
+    for(let i=0;i<tempos.length;i++){ const a=tempos[i], b=tempos[i+1], stop=b?Math.min(tk,b.tick):tk;
+      if(stop>a.tick) s2+=(stop-a.tick)/tpq*a.us/1e6; if(!b||tk<=b.tick) break; } return s2; };
+  const notes=raw.map(n=>({t:sec(n.t0),dur:Math.max(0.06,sec(n.t1)-sec(n.t0)),note:n.note,vel:n.vel/127})).sort((a,b)=>a.t-b.t);
+  return {notes,title,length:notes.length?Math.max(...notes.map(n=>n.t+n.dur)):0};
+}
+let song=null, songTimer=0;
+function playSong(sg,name){
+  stopSong(); song={...sg,name:sg.title||name,i:0,start:performance.now()/1000+0.3}; audioOn(); if(AC) AC.resume();
+  const step=()=>{ if(!song) return; const now=performance.now()/1000-song.start;
+    while(song.i<song.notes.length&&song.notes[song.i].t<now+0.12){
+      const n=song.notes[song.i++], wait=Math.max(0,(n.t-now)*1000);
+      setTimeout(()=>{ if(song) auto(n.note,0.25+0.75*n.vel,n.dur*1000); },wait); }
+    if(song.i>=song.notes.length&&now>song.length+1){ song=null; hud(); return; }
+    hud(); songTimer=setTimeout(step,40); };
+  step();
+}
+function stopSong(){ clearTimeout(songTimer); song=null; hud(); }
+addEventListener('dragover',e=>{ e.preventDefault(); });
+addEventListener('drop',async e=>{
+  e.preventDefault(); const file=e.dataTransfer.files[0]; if(!file) return;
+  try{ playSong(parseMidi(await file.arrayBuffer()),file.name.replace(/\.midi?$/i,'')); }
+  catch(err){ songMsg='That file isn\'t a MIDI file I can read.'; hud(); setTimeout(()=>{songMsg='';hud();},4000); }
+});
+let songMsg='';
+const mmss=x=>Math.floor(x/60)+':'+String(Math.floor(x%60)).padStart(2,'0');
+
+// ═══ recolour on close (the animator's idea): each landing takes a new palette colour ═══
+let recolorOn=false, recolorMode='step';   // piano roll: the composition keeps its own paint          // step: paint 1 → 2 → … → 6 → 1   ·   random
+const PALHEX=Object.keys(COMP.palette).sort((a,b)=>a-b).map(k=>COMP.palette[k].toLowerCase());
+const PAL=PALHEX.map(h=>new THREE.Color(h));
+function recolor(f){ const g=f.g;
+  if(!g.recol){ g.fm.map=bump; g.em.map=bump; g.fm.needsUpdate=g.em.needsUpdate=true; g.recol=true; }
+  if(f.paint==null) f.paint=Math.max(0,PALHEX.indexOf((f.hex||'').toLowerCase()));   // its real paint number, 0-based
+  f.paint=recolorMode==='step'?(f.paint+1)%PAL.length:Math.floor(Math.random()*PAL.length);
+  const c=PAL[f.paint]; g.fm.color.copy(c); g.em.color.copy(c);
+}
+function restoreColours(){ faces.forEach(f=>{ const g=f.g; if(!g.recol) return;
+  g.fm.map=tex; g.em.map=tex; g.fm.color.set(0xffffff); g.em.color.set(0xffffff); g.fm.needsUpdate=g.em.needsUpdate=true; g.recol=false; f.paint=null; }); kick(); }
+
+// ═══ computer keyboard: three rows, three octaves of the scale — no wrong notes ═══
+const SCALES=[ {n:'Major pentatonic',s:[0,2,4,7,9]}, {n:'Minor pentatonic',s:[0,3,5,7,10]},
+  {n:'Dorian',s:[0,2,3,5,7,9,10]}, {n:'Whole tone',s:[0,2,4,6,8,10]}, {n:'Chromatic',s:[0,1,2,3,4,5,6,7,8,9,10,11]} ];
+const ROWS=[ ['KeyZ','KeyX','KeyC','KeyV','KeyB','KeyN','KeyM','Comma','Period','Slash'],
+  ['KeyA','KeyS','KeyD','KeyF','KeyG','KeyH','KeyJ','KeyK','KeyL','Semicolon','Quote'],
+  ['KeyQ','KeyW','KeyE','KeyR','KeyT','KeyY','KeyU','KeyI','KeyO','KeyP','BracketLeft','BracketRight'],
+  ['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9','Digit0','Minus','Equal'] ];
+let scaleI=0, octave=0; const keyNote={};
+function keyToNote(code){
+  for(let r=0;r<4;r++){ const j=ROWS[r].indexOf(code); if(j<0) continue;
+    const sc=MODES[ROLL.mode].s; return 36+ROLL.key+12*octave+12*r+sc[j%sc.length]+12*Math.floor(j/sc.length); }
+  return null;
+}
+let hudOn=false;
+addEventListener('keydown',e=>{
+  if(e.metaKey||e.ctrlKey) return;
+  if(e.target.closest&&e.target.closest('#roll')&&e.code!=='Backslash') return;
+  if(false){ togglePlay(); e.preventDefault(); return; }
+  if(e.code==='ShiftLeft'||e.code==='ShiftRight'){ setSustain(true); return; }
+  if(e.repeat) return;
+  if(!started){ started=true; startRoll(); }
+  const n=keyToNote(e.code);
+  if(n!=null){ keyNote[e.code]=n; noteOn(n,0.8); e.preventDefault(); return; }
+  if(e.code==='Space'){ splash(); e.preventDefault(); return; }
+  if(e.code==='ArrowUp'){ octave=Math.min(2,octave+1); hud(); e.preventDefault(); return; }
+  if(e.code==='ArrowDown'){ octave=Math.max(-2,octave-1); hud(); e.preventDefault(); return; }
+  if(e.code==='KeyC'&&e.altKey){ return; }
+  if(e.code==='Backquote'||e.code==='IntlBackslash'){ if(!recolorOn){ recolorOn=true; recolorMode='step'; } else if(recolorMode==='step') recolorMode='random'; else recolorOn=false; hud(); return; }
+  if(e.code==='Backspace'){ restoreColours(); return; }
+  if(e.code==='Escape'){ panic(); e.preventDefault(); return; }
+  if(e.code==='Tab'){ e.preventDefault(); return; }
+  if(false){ hudOn=!hudOn; $('roll').style.display=hudOn?'block':'none'; hud(); e.preventDefault(); return; }
+  if(e.code==='Enter'){ document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen(); return; }
+  audioOn();
+});
+addEventListener('keyup',e=>{
+  if(e.code==='ShiftLeft'||e.code==='ShiftRight'){ setSustain(false); return; }
+  if(keyNote[e.code]!=null){ noteOff(keyNote[e.code]); delete keyNote[e.code]; }
+});
+// all notes off: every voice, every drawer, the sustain — whatever got stuck
+function panic(){ stopRoll(); stopSong(); clearTimeout(genTimer); gen=null; sustain=false; pending.clear(); [...held.keys()].forEach(n=>noteOff(n,true));
+  for(const k in keyNote) delete keyNote[k]; faces.forEach(f=>{ f.g.goal=0; f.busy=false; }); kick(); hud(); }
+addEventListener('blur',()=>{ setSustain(false); for(const c in keyNote){ noteOff(keyNote[c],true); delete keyNote[c]; } });                                   // never leave a note ringing in the background
+document.addEventListener('visibilitychange',()=>{ if(document.hidden){ pauseRoll(); panic(); } });
+
+// ═══ MIDI: any keyboard, velocity → how far the drawer flies, sustain pedal ═══
+let midiName='none';
+if(navigator.requestMIDIAccess) navigator.requestMIDIAccess().then(acc=>{
+  const hook=()=>{ const ins=[...acc.inputs.values()]; midiName=ins.length?ins.map(i=>i.name).join(', '):'none';
+    ins.forEach(i=>i.onmidimessage=m=>onMidi(m.data)); hud(); };
+  acc.onstatechange=hook; hook();
+}).catch(()=>{ midiName='not allowed'; hud(); });
+function onMidi(data){ { const [st,a,b]=data, cmd=st&0xf0, ch=st&15;
+      if(ch===9){ if(cmd===0x90&&b>0) pad((a-36)%8); return; }          // pads: channel 10, notes 36–51 (banks A and B)
+      if(cmd===0x90&&b>0) noteOn(a,b/127); else if(cmd===0x80||(cmd===0x90&&b===0)) noteOff(a);
+      else if(cmd===0xb0&&a===64) setSustain(b>=64);
+      else if(cmd===0xb0){ const k=a>=70&&a<=77?a-70:(a>=1&&a<=8?a-1:-1); if(k>=0) knob(k,b/127); } } }
+
+// ═══ MPK Mini: 8 pads, 8 knobs ═══
+function pad(i){
+  audioOn();
+  [()=>splash(), ()=>setGen('drift'), ()=>setGen('pulse'), ()=>setGen('rain'), ()=>setGen('tides'),
+   ()=>{ scaleI=(scaleI+1)%SCALES.length; hud(); },
+   ()=>{ if(!recolorOn){ recolorOn=true; recolorMode='step'; } else if(recolorMode==='step') recolorMode='random'; else recolorOn=false; hud(); },
+   ()=>panic()][i]();
+}
+let knobMsg='', knobT=0;
+const KNOBS=[
+  ['Tempo',     v=>{ tempo=+(0.4+2.6*v*v).toFixed(2); return tempo+'×'; }],
+  ['Pull',      v=>{ TUNE.pull=Math.round(15+45*v); return TUNE.pull+' mm'; }],
+  ['Reverb',    v=>{ PERF.wet=0.85*v; if(wetGain) wetGain.gain.setTargetAtTime(PERF.wet,AC.currentTime,0.05); return Math.round(v*100)+'%'; }],
+  ['Volume',    v=>{ PERF.vol=v; if(out) out.gain.setTargetAtTime(v,AC.currentTime,0.05); return Math.round(v*100)+'%'; }],
+  ['Brightness',v=>{ PERF.bright=0.25+1.75*v; return PERF.bright.toFixed(2)+'×'; }],
+  ['Note length',v=>{ PERF.rel=0.3+5.7*v*v; return PERF.rel.toFixed(1)+'×'; }],
+  ['Light',     v=>{ const a=(-80+160*v)*Math.PI/180; key.position.set(Math.sin(a)*1150,900,Math.cos(a)*1300); kick(); return Math.round(-80+160*v)+'°'; }],
+  ['Splash size',v=>{ PERF.splashR=0.12+0.6*v; return Math.round(PERF.splashR*100)+'%'; }],
+];
+function knob(i,v){ const [name,set]=KNOBS[i]; knobMsg=`${name} <b>${set(v)}</b>`; clearTimeout(knobT); knobT=setTimeout(()=>{ knobMsg=''; hud(); },1800); hud(); }
+
+function hud(){
+  const el=document.getElementById('hud'); el.style.display=hudOn?'':'none'; if(!hudOn) return;
+  const k=s=>`<span class="k">${s}</span>`;
+  el.innerHTML=`${roll?`▶ <b>${{pairs:'The pairs',scales:'Scales',roll:'Piano roll'}[PIECE]}</b> ${mmss(Math.max(0,performance.now()/1000-roll.start))} / ${mmss(roll.len)} · `:''}${knobMsg?knobMsg+' · ':''}${songMsg?`<b>${songMsg}</b> · `:''}${song?`♪ <b>${song.name}</b> ${mmss(Math.max(0,performance.now()/1000-song.start))} / ${mmss(song.length)} · `:''}${gen?`playing <b>${GENS[gen].name}</b> · tempo <b>${tempo}×</b> · `:''}<b>${SCALES[scaleI].n}</b> · octave <b>${octave>0?'+':''}${octave}</b> · sustain <b>${sustain?'on':'off'}</b> · recolour <b>${recolorOn?(recolorMode==='step'?'step 1–6':'random'):'off'}</b> · MIDI <b>${midiName}</b><br>`+
+    `${k('Z')}…${k('/')} ${k('A')}…${k("'")} ${k('Q')}…${k(']')} ${k('1')}…${k('=')} play &nbsp; ${k('↑')}${k('↓')} octave &nbsp; ${k('⇧')} sustain &nbsp; ${k('space')} splash &nbsp; ${k('`')} recolour &nbsp; ${k('⌫')} restore &nbsp; ${k('↵')} fullscreen &nbsp; drop a <b>.mid</b> file to play it &nbsp; ${k('tab')} hide &nbsp; ${k('\\')} piece on / off &nbsp; ${k('esc')} <b>all notes off</b>`;
+}
+// the pointer hides while you play, returns when the mouse moves
+let ptrT=0; const hidePtr=()=>{ document.body.style.cursor='none'; };
+addEventListener('keydown',hidePtr);
+addEventListener('mousemove',()=>{ document.body.style.cursor=''; clearTimeout(ptrT); ptrT=setTimeout(hidePtr,2500); });
+// ═══ PIANO ROLL: the cabinet as a pianola roll ═══════════════════════
+// A line sweeps across. Each drawer sounds when the line reaches its left
+// edge and rings for its width. Height = pitch (top high). The largest
+// drawers are the left hand (bass), the rest the melody; where the cabinet
+// crowds, only the biggest drawers in each half-beat sound, so it breathes.
+// Dark faces play softer and warmer, light ones brighter.
+const ROLL={bpm:62, pass:100, bass:0.22, thin:1, key:2, mode:0, dir:1};
+const MODES=[{n:'Major',s:[0,2,4,5,7,9,11]},{n:'Lydian',s:[0,2,4,6,7,9,11]},{n:'Mixolydian',s:[0,2,4,5,7,9,10]},
+  {n:'Dorian',s:[0,2,3,5,7,9,10]},{n:'Aeolian',s:[0,2,3,5,7,8,10]},{n:'Pentatonic',s:[0,2,4,7,9]}];
+const KEYS=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
+const sdeg=(n,base)=>{ const sc=MODES[ROLL.mode].s, L=sc.length, o=Math.floor(n/L); return base+12*o+sc[((n%L)+L)%L]; };
+function buildRoll(dir){
+  const T=ROLL.pass, q=60/ROLL.bpm/2;                          // half-beat grid
+  const sz=faces.map(f=>f.size).sort((a,b)=>b-a), cut=sz[Math.floor(sz.length*ROLL.bass)];
+  const slots=new Map();
+  for(const f of faces){
+    const x0=dir>0?f.hitx:cabW-(f.hitx+f.hitw), t=Math.round(x0/cabW*T/q)*q;
+    const up=1-f.cy, isB=f.size>=cut;                          // 0 bottom … 1 top
+    const note=isB?sdeg(Math.round(up*7),36+ROLL.key):sdeg(Math.round(up*13),60+ROLL.key);
+    const s=slots.get(t)||{b:[],m:[]}; (isB?s.b:s.m).push({f,note,isB}); slots.set(t,s);
+  }
+  const notes=[];
+  for(const [t,s] of slots) for(const [arr,k] of [[s.b,1],[s.m,ROLL.thin]]){
+    arr.sort((a,b)=>b.f.size-a.f.size); const used=new Set(); let n=0;
+    for(const c of arr){ if(n>=k) break; if(used.has(c.note)) continue; used.add(c.note); n++;
+      notes.push({t,note:c.note,f:c.f,dur:Math.min(7,Math.max(0.6,c.f.hitw/cabW*T*(c.isB?1.5:1))),
+        vel:(c.isB?0.34:0.4)+0.32*c.f.L}); } }
+  return notes.sort((a,b)=>a.t-b.t);
+}
+let PIECE=new URLSearchParams(location.search).get('piece')||'pairs';   // Mark's jam, 11/15: The pairs · Marimba · 96 bpm · D major
+const pieceLen=ns=>PIECE==='roll'?ROLL.pass:PIECE==='scales'?SC_BARS*4*60/ROLL.bpm:Math.max(...ns.map(n=>n.t+Math.min(n.dur,6)));
+// one note: sound for dur s; the drawer stays out for `open` s (Infinity = until the piece ends)
+function hit(n){
+  audioOn(); if(!n.f) n.f=drawerFor(n.note); const f=n.f, v=voice(n.note,n.vel,f);
+  setTimeout(()=>v.stop(),n.dur*1000);
+  if(n.silent) return;                                       // a bass note: sound only, no drawer
+  f.busy=true; f.g.goal=n.pull??(0.35+0.6*n.vel); kick();
+  if(n.open!==Infinity) setTimeout(()=>{ if(roll){ f.g.goal=0; f.busy=false; kick(); } },(n.open??n.dur)*1000);
+}
+// ═══ THE PAIRS: the game played by a perfect memory, as music ═══
+// The game's own drawer map (contents seed 23408, tube in R4C2) and its demo
+// player (seed 2026). Each object has a note; both its drawers hold it, each
+// in the octave of its height. A turn = two drawers, call and answer. A miss:
+// two notes, soft, the drawers close. A match: the note answers itself, a bass
+// note lands under it, and the pair stays open. Last, the tube, alone.
+function buildPairs(){
+  const rng=mulberry32(23408), tubeId='R4C2';
+  const rest=faces.filter(f=>f.id!==tubeId), bag=[];
+  for(let k=0;k<93;k++) bag.push(k,k);
+  for(let i=bag.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); [bag[i],bag[j]]=[bag[j],bag[i]]; }
+  const obj=new Map(); rest.forEach((f,i)=>obj.set(f,bag[i]));
+  // the demo player
+  const r2=mulberry32(2026), unseen=rest.slice();
+  for(let i=unseen.length-1;i>0;i--){ const j=Math.floor(r2()*(i+1)); [unseen[i],unseen[j]]=[unseen[j],unseen[i]]; }
+  const seen=[], done=new Set(), turns=[];
+  const look=f=>{ if(!seen.includes(f)) seen.push(f); const k=unseen.indexOf(f); if(k>=0) unseen.splice(k,1); };
+  const mateOf=f=>seen.find(o=>o!==f&&obj.get(o)===obj.get(f)&&!done.has(o));
+  while(done.size<186){
+    const known=seen.find(f=>!done.has(f)&&mateOf(f)); let a,b;
+    if(known){ a=known; b=mateOf(known); } else { a=unseen[0]; look(a); b=mateOf(a)||unseen[0]; }
+    look(a); look(b); const m=obj.get(a)===obj.get(b); if(m){ done.add(a); done.add(b); } turns.push([a,b,m]);
+  }
+  // the music
+  const sc=MODES[ROLL.mode].s, L=sc.length, beat=60/ROLL.bpm;
+  const pc=k=>sc[(k*3)%L]+12*Math.floor(((k*3)%(L*2))/L);   // each object its own degree
+  const at=(f,k)=>48+ROLL.key+12*Math.min(2,Math.floor((1-f.cy)*3))+pc(k);
+  const notes=[]; let t=0.2;
+  for(const [a,b,m] of turns){
+    const ka=obj.get(a), kb=obj.get(b);
+    if(m){
+      notes.push({t,f:a,note:at(a,ka),vel:0.5+0.15*a.L,dur:5,open:Infinity});
+      notes.push({t:t+beat,f:b,note:at(b,kb),vel:0.58+0.15*b.L,dur:6,open:Infinity});
+      notes.push({t:t+beat,f:b,note:36+ROLL.key+sc[(ka*3)%L],vel:0.4,dur:6,silent:true});
+      t+=beat*3;                                             // a match gets a breath
+    } else {
+      notes.push({t,f:a,note:at(a,ka),vel:0.26+0.15*a.L,dur:1.6,open:beat*1.6});
+      notes.push({t:t+beat,f:b,note:at(b,kb),vel:0.3+0.15*b.L,dur:1.6,open:beat*1.2});
+      t+=beat*2;
+    }
+  }
+  const tube=faces.find(f=>f.id===tubeId);
+  notes.push({t:t+beat*2,f:tube,note:36+ROLL.key,vel:0.5,dur:7,open:6});
+  notes.push({t:t+beat*2,f:tube,note:24+ROLL.key,vel:0.35,dur:7,silent:true});
+  return notes;
+}
+// ═══ SCALES: chord scales over a slow progression ═══
+// Eight bars, one chord each (I vi IV V iii vi ii V). Under each: the bass,
+// a soft rolled chord, and a run of sixteenths through the chord's own scale
+// (the same notes, starting from its root) in four shapes: up, falling
+// thirds, arpeggio up and back, down. Notes find drawers low-left to
+// high-right, so a run ripples across the cabinet.
+const SC_PROG=[0,5,3,4,2,5,1,4], SC_BARS=SC_PROG.length;
+function buildScales(){
+  const beat=60/ROLL.bpm, s16=beat/4, notes=[], B=ROLL.key;
+  const shapes=[
+    i=>i,                                         // up
+    i=>14-Math.floor(i/2)-(i%2?2:0),              // falling thirds
+    i=>[0,2,4,6,7,9,11,13,14,13,11,9,7,6,4,2][i], // arpeggio up and back
+    i=>15-i ];                                    // down
+  SC_PROG.forEach((c,bar)=>{
+    const t0=bar*4*beat;
+    notes.push({t:t0,note:sdeg(c,36+B),vel:0.42,dur:4*beat+0.6,open:4*beat-0.2});
+    [2,4,6].forEach((d,j)=>notes.push({t:t0+0.07*(j+1),note:sdeg(c+d,48+B),vel:0.22,dur:3.6*beat,open:3*beat}));
+    const sh=shapes[bar%4];
+    for(let i=0;i<16;i++) notes.push({t:t0+i*s16,note:sdeg(c+sh(i),60+B),
+      vel:0.26+0.22*Math.sin(Math.PI*(i+0.5)/16),dur:0.7,open:s16*3});
+  });
+  return notes;
+}
+function build(dir){ return PIECE==='pairs'?buildPairs():PIECE==='scales'?buildScales():buildRoll(dir); }
+const rollLine=new THREE.Mesh(new THREE.PlaneGeometry(1.6,cabH+2*F),new THREE.MeshBasicMaterial({color:0x1d1726,transparent:true,opacity:0.35}));
+rollLine.position.z=70; rollLine.visible=false; scene.add(rollLine);
+let roll=null, rollTimer=0;
+function startRoll(){
+  paused=null;
+  stopSong(); clearTimeout(genTimer); gen=null; audioOn(); if(AC) AC.resume();
+  const dir=ROLL.dir===0?1:ROLL.dir;
+  const notes=build(dir);
+  roll={dir,notes,len:pieceLen(notes),i:0,start:performance.now()/1000+0.5};
+  rollLine.visible=PIECE==='roll'; $('rPlay').textContent='Stop'; ppIcon(true); kick(); stepRoll(); hud();
+}
+function stepRoll(){ if(!roll) return; const now=performance.now()/1000-roll.start;
+  while(roll.i<roll.notes.length&&roll.notes[roll.i].t<now+0.15){
+    const n=roll.notes[roll.i++], w=Math.max(0,(n.t-now)*1000);
+    setTimeout(()=>{ if(roll) hit(n); },w); }
+  if(now>roll.len+(PIECE==='scales'?0:4)){                                         // a breath, then the next pass
+    if(ROLL.dir===0) roll.dir*=-1; else roll.dir=ROLL.dir;
+    faces.forEach(f=>{ f.g.goal=0; f.busy=false; });
+    roll.notes=build(roll.dir); roll.len=pieceLen(roll.notes); roll.i=0; roll.start=performance.now()/1000+0.5; kick(); }
+  hud(); rollTimer=setTimeout(stepRoll,40);
+}
+// pause keeps the place; play picks up from there
+let paused=null;
+function pauseRoll(){ if(!roll) return; paused={...roll,elapsed:performance.now()/1000-roll.start}; stopRoll(); }
+function resumeRoll(){
+  const r=paused; paused=null; audioOn(); if(AC) AC.resume();
+  const i=r.notes.findIndex(n=>n.t>=r.elapsed);
+  roll={...r,i:i<0?r.notes.length:i,start:performance.now()/1000-r.elapsed};
+  rollLine.visible=PIECE==='roll'; $('rPlay').textContent='Stop'; ppIcon(true); kick(); stepRoll(); hud();
+}
+function togglePlay(){ started=true; roll?pauseRoll():paused?resumeRoll():startRoll(); }
+function stopRoll(){ clearTimeout(rollTimer); if(!roll) return; roll=null; rollLine.visible=false;
+  faces.forEach(f=>{ f.g.goal=0; f.busy=false; }); $('rPlay').textContent='Play'; ppIcon(false); kick(); hud(); }
+const $=id=>document.getElementById(id);
+let started=false;
+// the one visible control: play / pause
+function ppIcon(on){ $('pp').setAttribute('aria-label',on?'Pause':'Play');
+  $('pp').innerHTML=on?'<svg viewBox="0 0 16 16"><rect x="3.5" y="2.5" width="3" height="11"/><rect x="9.5" y="2.5" width="3" height="11"/></svg>'
+                      :'<svg viewBox="0 0 16 16"><path d="M4 2.5v11l9.5-5.5z"/></svg>'; }
+$('pp').onclick=()=>{ togglePlay(); $('pp').blur(); };
+addEventListener('pointerdown',e=>{ if(!started&&!e.target.closest('#roll')&&!e.target.closest('#pp')){ started=true; startRoll(); } });
+$('rPiece').value=PIECE;
+KEYS.forEach((k,i)=>$('rKey').add(new Option(k,i,i===ROLL.key,i===ROLL.key)));
+Object.entries(VOICES).forEach(([k,o])=>$('rVoice').add(new Option(o.n,k,k===VOICE,k===VOICE)));
+MODES.forEach((m,i)=>$('rMode').add(new Option(m.n,i,i===0,i===0)));
+function readPanel(){
+  ROLL.bpm=+$('rBpm').value; ROLL.pass=+$('rPass').value; ROLL.bass=$('rBass').value/100; ROLL.thin=+$('rThin').value;
+  ROLL.key=+$('rKey').value; ROLL.mode=+$('rMode').value; ROLL.dir=+$('rDir').value; PIECE=$('rPiece').value; VOICE=$('rVoice').value; if(VOICE==='piano') loadPiano();
+  $('vBpm').textContent=ROLL.bpm; $('vPass').textContent=ROLL.pass; $('vBass').textContent=Math.round(ROLL.bass*100); $('vThin').textContent=ROLL.thin;
+}
+$('roll').addEventListener('input',e=>{ readPanel(); if(e.target.id!=='rVoice'){ paused=null; if(roll) startRoll(); } });   // changes restart the pass
+$('rPlay').onclick=()=>{ togglePlay(); $('rPlay').blur(); };
+readPanel();
+hud(); kick();
+window.__roll={buildRoll,ROLL,get roll(){return roll},get samples(){return Object.keys(PIANO).length}};
+window.__inst={draw,R,scene,key,onMidi,get tempo(){return tempo},get gen(){return gen},PERF,TUNE,recolor,PALHEX,noteOn,noteOff,faces,splash,held,pending,keyNote,get AC(){return AC},get out(){return out},get sustain(){return sustain}};   // for testing
+</script></body></html>
